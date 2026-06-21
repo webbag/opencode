@@ -1,0 +1,40 @@
+# docker-compose.yml — OpenCode CLI w rootless Podman
+#
+# Uruchomienie:
+#   podman-compose up
+#   podman-compose run --rm opencode run "komenda"
+#
+# Wymagany plik .env z kluczami API:
+#   OPENAI_API_KEY=sk-...
+#   ANTHROPIC_API_KEY=sk-ant-...
+#   OPENCODE_SEARCH_API_KEY=...
+
+version: "3.9"
+
+services:
+  opencode:
+    image: ghcr.io/webbag/opencode:latest
+    build:
+      context: .
+      dockerfile: Containerfile
+      args:
+        OPENCODE_VERSION: latest
+    container_name: opencode
+    stdin_open: true
+    tty: true
+    environment:
+      - OPENAI_API_KEY=${OPENAI_API_KEY:-}
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
+      - GOOGLE_API_KEY=${GOOGLE_API_KEY:-}
+      - MISTRAL_API_KEY=${MISTRAL_API_KEY:-}
+      - OPENCODE_SEARCH_API_KEY=${OPENCODE_SEARCH_API_KEY:-}
+      - OPENCODE_TIMEOUT=${OPENCODE_TIMEOUT:-120000}
+    volumes:
+      - "${PWD}:/home/opencode/workdir:Z"
+      - "${HOME}/.config/opencode/opencode.json:/home/opencode/.config/opencode/opencode.json:ro,Z"
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    user: "1000:1000"
+    working_dir: /home/opencode/workdir

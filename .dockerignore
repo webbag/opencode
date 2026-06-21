@@ -1,0 +1,31 @@
+# Git
+.git/
+.gitignore
+.gitattributes
+
+# Documentation and plans (not needed in image)
+cel.md
+plan-implementacji.md
+README.md
+
+# Development configs (not needed in image)
+.editorconfig
+Makefile
+.env
+.env.*
+
+# CI/CD
+.github/
+
+# Tests
+tests/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
