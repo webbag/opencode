@@ -36,5 +36,6 @@ services:
       - ALL
     security_opt:
       - no-new-privileges:true
+    command: -m opencode/big-pickle
     user: "1000:1000"
     working_dir: /home/opencode/workdir
