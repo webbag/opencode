@@ -3,7 +3,9 @@
 > **Status dokumentu:** Roboczy v2  
 > **Data:** 2026-06-21  
 > **Autor:** DevOps/Security Engineer  
-> **Cel:** Rootless Podman container dla OpenCode CLI z sandboxingiem i CI/CD do ghcr.io
+> **Cel:** Rootless Podman container dla OpenCode CLI z sandboxingiem i CI/CD do ghcr.io  
+> **GitHub:** [webbag/opencode](https://github.com/webbag/opencode)  
+> **Rejestr obrazów:** `ghcr.io/webbag/opencode`
 
 ---
 
@@ -335,9 +337,9 @@ Automatyczna budowa i publikacja obrazów do GitHub Container Registry (ghcr.io)
 #### Cel
 
 - GitHub Actions workflow budujący obrazy na push do `main` i na tagi semver (v*)
-- Publikacja na `ghcr.io/<owner>/opencode-image`
+- Publikacja na `ghcr.io/webbag/opencode`
 - Build wieloarchitekturowy (linux/amd64, linux/arm64) z QEMU + buildx (podman buildx)
-- Obrazy z podwójnym tagiem: `ghcr.io/<org>/opencode-image:latest`, `ghcr.io/<org>/opencode-image:1.2.3`
+- Obrazy z podwójnym tagiem: `ghcr.io/webbag/opencode:latest`, `ghcr.io/webbag/opencode:1.2.3`
 - Automatyczny README w ghcr.io z instrukcją użycia
 - Scan bezpieczeństwa (Trivy) po zbudowaniu
 
@@ -354,18 +356,18 @@ Automatyczna budowa i publikacja obrazów do GitHub Container Registry (ghcr.io)
 # 1. Ręczna bubowa (symulacja CI)
 podman build \
   --platform linux/amd64,linux/arm64 \
-  -t ghcr.io/<org>/opencode-image:test \
+  -t ghcr.io/webbag/opencode:test \
   -f Containerfile .
 
 # 2. Push testowy
-podman push ghcr.io/<org>/opencode-image:test
+podman push ghcr.io/webbag/opencode:test
 
 # 3. Pociągnięcie i uruchomienie
-podman pull ghcr.io/<org>/opencode-image:test
-podman run --rm -it ghcr.io/<org>/opencode-image:test opencode --version
+podman pull ghcr.io/webbag/opencode:test
+podman run --rm -it ghcr.io/webbag/opencode:test opencode --version
 
 # 4. Skany bezpieczeństwa
-trivy image ghcr.io/<org>/opencode-image:test
+trivy image ghcr.io/webbag/opencode:test
 ```
 
 #### Eskalacja
@@ -475,8 +477,8 @@ podman run --rm --cap-drop=ALL "$IMAGE" \
 # Ręczna aktualizacja opencode wersji
 podman build \
   --build-arg OPENCODE_VERSION=v1.17.10 \
-  -t ghcr.io/<org>/opencode-image:1.17.10 \
-  -t ghcr.io/<org>/opencode-image:latest \
+  -t ghcr.io/webbag/opencode:1.17.10 \
+  -t ghcr.io/webbag/opencode:latest \
   -f Containerfile .
 ```
 
@@ -520,7 +522,7 @@ FROM ubuntu:${UBUNTU_VERSION} AS base
 
 LABEL org.opencontainers.image.title="OpenCode CLI Container"
 LABEL org.opencontainers.image.description="Rootless Podman container for OpenCode AI coding agent"
-LABEL org.opencontainers.image.source="https://github.com/<org>/opencode-image"
+LABEL org.opencontainers.image.source="https://github.com/webbag/opencode"
 LABEL org.opencontainers.image.licenses="MIT"
 LABEL org.opencontainers.image.version="1.0.0"
 
@@ -701,7 +703,7 @@ jobs:
 
 ```bash
 # Pobranie obrazu
-podman pull ghcr.io/<org>/opencode-image:latest
+podman pull ghcr.io/webbag/opencode:latest
 
 # Uruchomienie interaktywne (TUI)
 podman run --rm -it \
@@ -709,7 +711,7 @@ podman run --rm -it \
   --security-opt=no-new-privileges \
   -e OPENAI_API_KEY="sk-..." \
   -v "$(pwd):/home/opencode/workdir:Z" \
-  ghcr.io/<org>/opencode-image:latest
+  ghcr.io/webbag/opencode:latest
 
 # Uruchomienie headless (opencode run)
 podman run --rm -it \
@@ -717,7 +719,7 @@ podman run --rm -it \
   --security-opt=no-new-privileges \
   -e ANTHROPIC_API_KEY="sk-ant-..." \
   -v "$(pwd):/home/opencode/workdir:Z" \
-  ghcr.io/<org>/opencode-image:latest \
+  ghcr.io/webbag/opencode:latest \
   run "Zrefaktoruj plik main.py"
 
 # Uruchomienie z web search (wyszukiwanie w internecie)
@@ -727,7 +729,7 @@ podman run --rm -it \
   -e OPENAI_API_KEY="sk-..." \
   -e OPENCODE_SEARCH_API_KEY="..." \
   -v "$(pwd):/home/opencode/workdir:Z" \
-  ghcr.io/<org>/opencode-image:latest \
+  ghcr.io/webbag/opencode:latest \
   run "Znajdź najnowszą wersję Pythona i porównaj z Python 3.12"
 ```
 
