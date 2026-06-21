@@ -600,6 +600,35 @@ podman run --rm -v opencode-config:/home/opencode/.config/opencode "$IMAGE" \
 | **SELinux** | Dodanie własnego profilu SELinux dla kontenera |
 | **Read-only rootfs** | `--read-only-rootfs` z tmpfs na `/tmp` i `/var` |
 
+### Darmowe modele opencode (bez kluczy API)
+
+OpenCode CLI zawiera wbudowane darmowe modele, które nie wymagają żadnych kluczy API. Są one dostępne od razu po instalacji opencode.
+
+| Model | Status |
+|---|---|
+| `opencode/big-pickle` | Domyślny, przetestowany |
+| `opencode/deepseek-v4-flash-free` | Dostępny |
+| `opencode/mimo-v2.5-free` | Dostępny |
+| `opencode/nemotron-3-ultra-free` | Dostępny |
+| `opencode/north-mini-code-free` | Dostępny |
+
+### Konfiguracja domyślnego modelu
+
+Aby opencode zawsze uruchamiał się z modelem `opencode/big-pickle`:
+
+1. **Containerfile**: `CMD ["-m", "opencode/big-pickle"]` — domyślny model przy `podman run image`
+2. **Makefile**: `MODEL ?= opencode/big-pickle` — używane w targetach `run` i `run-headless`
+3. **docker-compose.yml**: `command: -m opencode/big-pickle` — dla `podman-compose up`
+
+Zmiana modelu w runtime:
+```bash
+# Przez Makefile
+make run MODEL=opencode/deepseek-v4-flash-free
+
+# Ręcznie
+podman run --rm -it opencode:latest -m opencode/deepseek-v4-flash-free
+```
+
 ---
 
 ## A. Containerfile
@@ -654,8 +683,8 @@ RUN apt-get update && apt-get upgrade -y && \
 
 ARG OPENCODE_VERSION=latest
 
-RUN curl -fsSL https://opencode.ai/install | bash -s -- ${OPENCODE_VERSION} && \
-    ln -sf /root/.opencode/bin/opencode /usr/local/bin/opencode
+RUN curl -fsSL https://opencode.ai/install | bash && \
+    cp /root/.opencode/bin/opencode /usr/local/bin/opencode
 
 RUN opencode --version
 
@@ -665,7 +694,9 @@ RUN opencode --version
 # Użytkownik opencode (UID/GID 1000) — odpowiada domyślnemu UID na hoście Ubuntu.
 # Katalogi konfiguracyjne tworzone przed USER opencode, by miały odpowiednie prawa.
 
-RUN groupadd -g 1000 opencode && \
+RUN userdel -r ubuntu 2>/dev/null; \
+    groupdel ubuntu 2>/dev/null; \
+    groupadd -g 1000 opencode && \
     useradd -m -u 1000 -g 1000 -s /bin/bash opencode && \
     mkdir -p /home/opencode/workdir \
              /home/opencode/.config/opencode \

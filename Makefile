@@ -1,6 +1,7 @@
 IMAGE_NAME ?= opencode
 IMAGE_TAG ?= latest
 PLATFORM ?= linux/amd64
+MODEL ?= opencode/big-pickle
 
 UNAME_M := $(shell uname -m)
 ifeq ($(UNAME_M),x86_64)
@@ -40,7 +41,8 @@ run:
 		--security-opt=no-new-privileges \
 		-e OPENAI_API_KEY \
 		-v "$(PWD):/home/opencode/workdir:Z" \
-		$(IMAGE_NAME):$(IMAGE_TAG)
+		$(IMAGE_NAME):$(IMAGE_TAG) \
+		-m "$(MODEL)"
 
 .PHONY: run-headless
 run-headless:
@@ -50,7 +52,7 @@ run-headless:
 		-e OPENAI_API_KEY \
 		-v "$(PWD):/home/opencode/workdir:Z" \
 		$(IMAGE_NAME):$(IMAGE_TAG) \
-		run "$(CMD)"
+		run -m "$(MODEL)" "$(CMD)"
 
 .PHONY: shell
 shell:
@@ -60,7 +62,8 @@ shell:
 		-e OPENAI_API_KEY \
 		-v "$(PWD):/home/opencode/workdir:Z" \
 		--entrypoint /bin/bash \
-		$(IMAGE_NAME):$(IMAGE_TAG)
+		$(IMAGE_NAME):$(IMAGE_TAG) \
+		-l
 
 .PHONY: shell-root
 shell-root:
@@ -70,7 +73,21 @@ shell-root:
 		-v "$(PWD):/home/opencode/workdir:Z" \
 		--user root \
 		--entrypoint /bin/bash \
-		$(IMAGE_NAME):$(IMAGE_TAG)
+		$(IMAGE_NAME):$(IMAGE_TAG) \
+		-l
+
+.PHONY: run-ro
+run-ro:
+	podman run --rm -it \
+		--cap-drop=ALL \
+		--security-opt=no-new-privileges \
+		--read-only-rootfs \
+		--tmpfs /tmp \
+		--tmpfs /home/opencode/.local \
+		-e OPENAI_API_KEY \
+		-v "$(PWD):/home/opencode/workdir:Z" \
+		$(IMAGE_NAME):$(IMAGE_TAG) \
+		-m "$(MODEL)"
 
 # ============================================================
 # Testy
@@ -80,15 +97,21 @@ shell-root:
 test: build
 	./tests/test_integration.sh $(IMAGE_NAME):$(IMAGE_TAG)
 
+.PHONY: test-security
+test-security: build
+	./tests/test_security.sh $(IMAGE_NAME):$(IMAGE_TAG)
+
 .PHONY: test-quick
 test-quick:
-	podman run --rm $(IMAGE_NAME):$(IMAGE_TAG) opencode --version
-	podman run --rm $(IMAGE_NAME):$(IMAGE_TAG) git --version
-	podman run --rm $(IMAGE_NAME):$(IMAGE_TAG) whoami | grep opencode
+	podman run --rm --entrypoint /bin/bash $(IMAGE_NAME):$(IMAGE_TAG) -c "opencode --version && git --version && whoami"
 
 # ============================================================
 # Informacje
 # ============================================================
+
+.PHONY: model
+model:
+	podman run --rm $(IMAGE_NAME):$(IMAGE_TAG) models
 
 .PHONY: size
 size:
@@ -103,11 +126,14 @@ help:
 	@echo "Targety Makefile:"
 	@echo "  build           — zbuduj obraz (domyślnie: $(IMAGE_NAME):$(IMAGE_TAG))"
 	@echo "  build-no-cache  — zbuduj bez cache"
-	@echo "  run             — uruchom TUI"
-	@echo "  run-headless    — uruchom headless (make run-headless CMD='twoja komenda')"
+	@echo "  run             — uruchom TUI (model: $(MODEL))"
+	@echo "  run-headless    — uruchom headless (make run-headless CMD='polecenie')"
 	@echo "  shell           — wejdź do shella jako opencode"
 	@echo "  shell-root      — wejdź do shella jako root"
+	@echo "  run-ro          — uruchom z --read-only-rootfs (eksperymentalne)"
 	@echo "  test            — testy integracyjne"
+	@echo "  test-security   — testy bezpieczeństwa"
 	@echo "  test-quick      — szybki test (wersja, git, whoami)"
+	@echo "  model           — sprawdź dostępne modele w obrazie"
 	@echo "  size            — sprawdź rozmiar obrazu"
 	@echo "  history         — historia warstw obrazu"
