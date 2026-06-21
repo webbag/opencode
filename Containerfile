@@ -31,7 +31,7 @@ RUN apt-get update && \
 
 RUN curl -fsSL https://opencode.ai/install | bash && \
     cp /root/.opencode/bin/opencode /opencode && \
-    opencode --version
+    /opencode --version
 
 # ============================================================
 # Stage 2: final
