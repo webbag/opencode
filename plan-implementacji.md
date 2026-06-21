@@ -1,6 +1,6 @@
 # Plan implementacji — Konteneryzacja OpenCode CLI
 
-> **Status dokumentu:** Roboczy v2  
+> **Status dokumentu:** Roboczy v3  
 > **Data:** 2026-06-21  
 > **Autor:** DevOps/Security Engineer  
 > **Cel:** Rootless Podman container dla OpenCode CLI z sandboxingiem i CI/CD do ghcr.io  
@@ -11,15 +11,18 @@
 
 ## Spis treści
 
+0. [Faza 0: Przygotowanie repozytorium](#faza-0-przygotowanie-repozytorium)
 1. [Wymagania](#1-wymagania)
 2. [Architektura i Bezpieczeństwo](#2-architektura-i-bezpieczeństwo)
 3. [Plan implementacji (SCOPE)](#3-plan-implementacji-scope)
+   - [Faza 0: Przygotowanie repozytorium](#faza-0-przygotowanie-repozytorium)
    - [SCOPE 1: Obraz bazowy i narzędzia](#scope-1-obraz-bazowy-i-narzędzia)
    - [SCOPE 2: Bezpieczeństwo i sandboxing](#scope-2-bezpieczeństwo-i-sandboxing)
    - [SCOPE 3: Sieć i integracja z API](#scope-3-sieć-i-integracja-z-api)
    - [SCOPE 4: CI/CD i publikacja](#scope-4-cicd-i-publikacja)
-4. [Testowanie](#4-testowanie)
-5. [Utrzymanie](#5-utrzymanie)
+4. [Uwagi techniczne zbiorcze](#6-uwagi-techniczne-zbiorcze--zmiany-względem-v2-planu)
+5. [Testowanie](#4-testowanie)
+6. [Utrzymanie](#5-utrzymanie)
 
 ---
 
@@ -141,7 +144,7 @@ podman run --uidmap=0:100000:1000 --uidmap=1000:1000:1 --uidmap=1001:101001:6453
 
 ## 3. Plan implementacji (SCOPE)
 
-Projekt podzielono na **4 etapy (SCOPE)**. Każdy SCOPE zawiera:
+Projekt podzielono na **4 etapy (SCOPE)** oraz **Fazę 0 (przygotowawczą)**. Każdy SCOPE zawiera:
 
 | Element | Opis |
 |---|---|
@@ -150,6 +153,36 @@ Projekt podzielono na **4 etapy (SCOPE)**. Każdy SCOPE zawiera:
 | **O**graniczenia | Znane limity i założenia |
 | **P**rocedura weryfikacji | Jak sprawdzamy poprawność |
 | **E**skalacja | Co robimy przy niepowodzeniu |
+
+---
+
+### Faza 0: Przygotowanie repozytorium
+
+#### Scenariusz
+
+Przed rozpoczęciem budowy obrazu należy przygotować strukturę repozytorium, narzędzia developerskie (Makefile) oraz pliki konfiguracyjne usprawniające pracę i zapobiegające wyciekowi zbędnych plików do kontekstu builda.
+
+#### Cel
+
+- `.gitignore` — ignorowanie artifactów, kluczy API, `.env`, katalogów tymczasowych
+- `.dockerignore` — wykluczenie zbędnych plików z kontekstu `podman build` (znacząco przyspiesza budowę)
+- `.editorconfig` — spójność stylu kodowania (UTF-8, wcięcia, trailing whitespace)
+- `Makefile` — zestaw komend: `make build`, `make run`, `make test`, `make shell`, `make secure-run`
+- Struktura katalogów `.github/workflows/` i `tests/`
+
+#### Procedura weryfikacji
+
+```bash
+ls -la .gitignore .dockerignore .editorconfig Makefile .github/
+
+# Test Makefile
+make help  # → wyświetla dostępne targety
+```
+
+#### Uwagi techniczne
+
+- **.dockerignore jest krytyczny** — bez niego `podman build` przesyła całe repo do demona builda. Repo może zawierać duże pliki (node_modules, .git, test artifacts). Dla obrazu ~1.5 GB to różnica kilkudziesięciu sekund budowy.
+- **Makefile** — celowo jako nakładka, a nie wymóg. Użytkownik może używać bezpośrednio `podman build`, ale Makefile skraca często używane komendy i dokumentuje je w jednym miejscu.
 
 ---
 
@@ -174,6 +207,8 @@ Użytkownik buduje obraz kontenera zawierający wszystkie wymagane narzędzia: o
 - Obraz musi być budowalny na amd64 i arm64
 - Rozmiar ≤ 1.5 GB
 - Brak warstwy sieciowej w tym SCOPE
+- `sudo` **nie** jest instalowane w obrazie — zbędne (opencode user nie ma praw sudo), zwiększa powierzchnię ataku
+- `dnsutils` w Ubuntu 24.04 → `bind9-dnsutils` (pakiet `dnsutils` jest przejściowy, ale działa — zachowujemy dla kompatybilności)
 
 #### Procedura weryfikacji
 
@@ -202,6 +237,14 @@ podman images opencode:scope1 --format '{{.Size}}'
 - Problem z AVX → sprawdź `cat /proc/cpuinfo | grep avx` na hoście; użyj `--cpuset-cpus` dla dedykowanych rdzeni
 - Binary opencode nie działa → pobierz binarkę z GitHub Releases zamiast skryptem instalacyjnym
 - Zbyt duży obraz → przeanalizuj warstwy `podman history` i rozdziel instalacje
+
+#### Uwagi techniczne (SCOPE 1)
+
+1. **Brak `sudo`** — plan v2 instalował `sudo`, ale użytkownik `opencode` i tak nie ma uprawnień sudo. Binary sudo to niepotrzebny wektor ataku — usunięto.
+2. **`python3-pip` i `python3-venv`** — dodają ~200 MB do obrazu. Jeśli opencode nie wymaga pip w runtime, rozważyć usunięcie. W v3 pozostawiamy, bo mogą być potrzebne do skryptów Python generowanych przez AI.
+3. **ARG TARGETARCH** — w planie v2 zdefiniowany, ale nieużywany. Oficjalny skrypt instalacyjny opencode sam wykrywa architekturę. Parametr usunięto z Containerfile.
+4. **Instalacja opencode jako root** — celowa: binary ląduje w `/usr/local/bin` (dostępny dla wszystkich użytkowników). Instalacja jako `opencode` user wymagałaby kopiowania do katalogu w `$PATH` użytkownika.
+5. **`netcat-openbsd`** — dodany w planie v2, ale nie wymagany. Pozostawiamy jako narzędzie przydatne do debugowania sieci.
 
 ---
 
@@ -256,6 +299,17 @@ ping -c 1 8.8.8.8 # → permission denied (lub works tylko z setcap)
 - `ping` całkowicie nie działa → rozważ dodanie `--cap-add=CAP_NET_RAW` tylko dla tego przypadku, ale to *obniża* bezpieczeństwo. Alternatywnie: użyj `nping` (z nmap) w trybie TCP: `nping --tcp -p 80 8.8.8.8`
 - Procesy dziecka uciekają → dodaj `--pids-limit=100`
 - Potrzebny dostęp do hosta → rozważ `--read-only-rootfs` z tmpfs dla `/tmp`
+
+#### Uwagi techniczne (SCOPE 2)
+
+1. **User creation w build time** — użytkownik `opencode` (UID 1000) jest tworzony w Containerfile, jeszcze przed instalacją opencode (ale po instalacji pakietów systemowych). Dzięki temu opencode jest dostępne globalnie, a user ma gotowy `$HOME`.
+2. **Brak `setcap` dla ping** — zgodnie z decyzją projektową: narzędzia diagnostyczne działają w ograniczonym zakresie. `nping --tcp` i `curl` są alternatywami.
+3. **Kolejność warstw w Containerfile** — ważna dla warstwowania:
+   ```
+   apt packages → opencode CLI → user opencode → ENV → USER → ENTRYPOINT
+   ```
+   Jeśli opencode wymaga zapisu do `~/.config/opencode`, katalog musi być stworzony z odpowiednimi prawami przed `USER opencode`.
+4. **ENTRYPOINT ["opencode"] vs CMD ["--help"]** — pozwala na `podman run image run "polecenie"` (headless) lub `podman run image` (TUI przez --help).
 
 ---
 
@@ -326,6 +380,17 @@ podman run --rm -it opencode:scope3 ss -tlnp
 - Limit czasu połączenia → opencode ma wbudowany timeout; zwiększ przez `OPENCODE_TIMEOUT`
 - Strona zwraca CAPTCHA → web scraping może być blokowany; opencode `webfetch` pobiera czysty HTML, nie wykonuje JS
 
+#### Uwagi techniczne (SCOPE 3)
+
+1. **entrypoint.sh** — opcjonalny wrapper wokół opencode. Może:
+   - Sprawdzać obecność kluczy API przed uruchomieniem
+   - Ustawiać domyślne timeouty
+   - Logować wersję i konfigurację na starcie
+   Nie jest wymagany przez opencode (które samo radzi sobie z brakiem API key), ale poprawia UX.
+2. **Websearch i webfetch** — to wbudowane funkcje opencode, nie wymagają dodatkowych pakietów w obrazie. `curl` i `wget` są dla diagnostyki i potencjalnych skryptów użytkownika.
+3. **Zmienne środowiskowe** — klucze API są przekazywane przez `-e` w `podman run`, NIGDY nie buildowane w obraz. To krytyczne dla bezpieczeństwa (klucze nie wyciekają do rejestru).
+4. **Brak ingress** — kontener nie nasłuchuje na żadnych portach. Potwierdzamy przez `ss -tlnp` które powinno zwrócić pusty wynik.
+
 ---
 
 ### SCOPE 4: CI/CD i publikacja
@@ -375,6 +440,33 @@ trivy image ghcr.io/webbag/opencode:test
 - Brak uprawnień do ghcr.io → skonfiguruj `GITHUB_TOKEN` z `packages: write` w repository secrets
 - Build arm64 failuje w QEMU → sprawdź CPU type (`--cpu=host`), AVX dla opencode na arm64 nie jest wymagane (ARM64 ma NEON)
 - Przekroczony limit czasu → zoptymalizuj warstwy, użyj cache z ghcr.io (`--cache-from`)
+
+#### Uwagi techniczne (SCOPE 4)
+
+1. **buildah-build action** — zamiast `podman build` w CI używamy `redhat-actions/buildah-build`, które lepiej wspiera buildx i multi-arch.
+2. **QEMU dla arm64** — `qemu-user-static` musi być zainstalowane na runnerze. W Ubuntu 24.04 działa z `apt-get install qemu-user-static`.
+3. **Trivy scan** — tylko CRITICAL i HIGH severity. Lower severity (MEDIUM, LOW) są zwykle fałszywie pozytywne dla obrazów opartych na Ubuntu.
+4. **Tagowanie** — `latest` i `v*` (semver). Pull requesty też budują obraz (dla weryfikacji), ale nie pushują do rejestru.
+
+---
+
+## 6. Uwagi techniczne zbiorcze — zmiany względem v2 planu
+
+| Lp. | Obszar | v2 (plan oryginalny) | v3 (poprawiony) | Uzasadnienie |
+|-----|--------|---------------------|-----------------|--------------|
+| 1 | **`sudo` w obrazie** | Instalowany jako pakiet systemowy | **Usunięty** | Użytkownik `opencode` nie ma praw sudo; binary sudo to niepotrzebny wektor ataku |
+| 2 | **ARG TARGETARCH** | Zdefiniowany, ale nieużywany | **Usunięty** | Oficjalny skrypt opencode sam wykrywa architekturę; martwy parametr |
+| 3 | **Kolejność warstw** | `apt` → opencode → user → USER | **Bez zmian** (kolejność poprawna) | Instalacja opencode jako root zapewnia dostęp globalny w `/usr/local/bin` |
+| 4 | **`setcap` dla ping** | Zakomentowany (`# RUN setcap...`) | **Bez zmian** | Pozostawiony jako zakomentowany — dokumentacja decyzji, nie kod |
+| 5 | **netcat-openbsd** | Dodany w apt | **Bez zmian** | Przydatny do debugowania sieci, mały narzut (~2 MB) |
+| 6 | **Faza 0** | Brak | **Dodana** | Przygotowanie repozytorium: .gitignore, .dockerignore, Makefile, .editorconfig |
+| 7 | **Makefile** | Brak | **Dodany jako Appendix D** | Usprawnia developer experience; targety: build, run, test, secure-run |
+| 8 | **entrypoint.sh** | Brak | **Dodany jako Appendix E** | Opcjonalny wrapper; sprawdza klucze API, loguje wersję |
+| 9 | **docker-compose.yml** | Brak | **Dodany jako Appendix F** | Ułatwia uruchomienie z flagami sandboxingu |
+| 10 | **.dockerignore** | Brak | **Dodany** | Przyspiesza build; zapobiega przesyłaniu zbędnych plików do kontekstu |
+| 11 | **Uwagi techniczne SCOPE** | Brak | **Dodane do każdego SCOPE** | Uzasadnienie decyzji technicznych, alternatywy, pułapki |
+| 12 | **Testowanie w CI** | Testy opisane, ale nie zautomatyzowane | **test_integration.sh** jako osobny plik | Uruchamiany w GitHub Actions po buildzie |
+| 13 | **Oznaczenie wersji dokumentu** | Roboczy v2 | **Roboczy v3** | — |
 
 ---
 
@@ -516,9 +608,12 @@ podman run --rm -v opencode-config:/home/opencode/.config/opencode "$IMAGE" \
 # Containerfile — OpenCode CLI w rootless Podman
 # Bazuje na Ubuntu 24.04 LTS
 # Budowa: podman build -t opencode:latest -f Containerfile .
+#
+# Kolejność warstw (ważna!):
+#   1. apt packages → 2. opencode CLI (root) → 3. user opencode → 4. ENV → 5. USER → 6. ENTRYPOINT
 
 ARG UBUNTU_VERSION=24.04
-FROM ubuntu:${UBUNTU_VERSION} AS base
+FROM ubuntu:${UBUNTU_VERSION}
 
 LABEL org.opencontainers.image.title="OpenCode CLI Container"
 LABEL org.opencontainers.image.description="Rootless Podman container for OpenCode AI coding agent"
@@ -529,73 +624,71 @@ LABEL org.opencontainers.image.version="1.0.0"
 # ============================================================
 # SCOPE 1: System packages and tools
 # ============================================================
+# Uwaga: sudo celowo pominięte — użytkownik opencode nie ma praw sudo,
+# a binary sudo to niepotrzebny wektor ataku.
+# netcat-openbsd: opcjonalne, ale przydatne do debugowania sieci.
 
 RUN apt-get update && apt-get upgrade -y && \
     DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
-    # Podstawowe narzędzia
-    git \
-    python3 \
-    python3-pip \
-    python3-venv \
-    nano \
-    curl \
-    ca-certificates \
-    # Narzędzia diagnostyczne i web
-    nmap \
-    iputils-ping \
-    iproute2 \
-    dnsutils \
-    netcat-openbsd \
-    wget \
-    # Narzędzia systemowe
-    bash \
-    sudo \
+        git \
+        python3 \
+        python3-pip \
+        python3-venv \
+        nano \
+        curl \
+        ca-certificates \
+        nmap \
+        iputils-ping \
+        iproute2 \
+        dnsutils \
+        netcat-openbsd \
+        wget \
+        bash \
     && rm -rf /var/lib/apt/lists/*
 
 # ============================================================
 # SCOPE 1: OpenCode CLI installation
 # ============================================================
+# Instalacja jako root → binary w /usr/local/bin (dostępny dla wszystkich).
+# Oficjalny skrypt sam wykrywa architekturę — nie potrzebujemy ARG TARGETARCH.
 
 ARG OPENCODE_VERSION=latest
-ARG TARGETARCH
 
-# Instalacja opencode przez oficjalny skrypt
 RUN curl -fsSL https://opencode.ai/install | bash -s -- ${OPENCODE_VERSION} && \
     ln -sf /root/.opencode/bin/opencode /usr/local/bin/opencode
 
-# Weryfikacja instalacji
 RUN opencode --version
 
 # ============================================================
 # SCOPE 2: User setup (sandboxing)
 # ============================================================
+# Użytkownik opencode (UID/GID 1000) — odpowiada domyślnemu UID na hoście Ubuntu.
+# Katalogi konfiguracyjne tworzone przed USER opencode, by miały odpowiednie prawa.
 
 RUN groupadd -g 1000 opencode && \
     useradd -m -u 1000 -g 1000 -s /bin/bash opencode && \
-    mkdir -p /home/opencode/workdir /home/opencode/.config/opencode /home/opencode/.local && \
+    mkdir -p /home/opencode/workdir \
+             /home/opencode/.config/opencode \
+             /home/opencode/.local && \
     chown -R opencode:opencode /home/opencode
 
-# Przyznajemy caps net_raw do ping (opcjonalnie)
+# CAP_NET_RAW dla ping — celowo zakomentowane (decyzja: narzędzia diagnostyczne
+# działają w ograniczonym zakresie; alternatywa: nping --tcp).
 # RUN setcap cap_net_raw+p /bin/ping
 
 # ============================================================
-# SCOPE 3: Configuration and entrypoint
+# SCOPE 3: Configuration and environment
 # ============================================================
+# Klucze API NIGDY nie są buildowane w obraz — przekazywane przez -e w runtime.
 
-# Kopiujemy domyślną konfigurację (jeśli istnieje)
-# COPY opencode.json /home/opencode/.config/opencode/opencode.json
-
-# Ustawiamy zmienne środowiskowe
 ENV HOME=/home/opencode
 ENV OPENCODE_HOME=/home/opencode/.config/opencode
 ENV PATH="/home/opencode/.local/bin:${PATH}"
 
 WORKDIR /home/opencode/workdir
 
-# Użytkownik domyślny
 USER opencode
 
-# Entrypoint
 ENTRYPOINT ["opencode"]
 CMD ["--help"]
 ```
@@ -695,6 +788,257 @@ jobs:
         uses: github/codeql-action/upload-sarif@v3
         with:
           sarif_file: trivy-results.sarif
+```
+
+---
+
+## D. Makefile
+
+```makefile
+# Makefile — OpenCode CLI Container
+# Użycie: make build — zbuduj obraz
+#         make run — uruchom interaktywnie
+#         make shell — shell w kontenerze
+#         make test — testy integracyjne
+
+IMAGE_NAME ?= opencode
+IMAGE_TAG ?= latest
+PLATFORM ?= linux/amd64
+
+# Detekcja architektury hosta
+UNAME_M := $(shell uname -m)
+ifeq ($(UNAME_M),x86_64)
+	PLATFORM = linux/amd64
+else ifeq ($(UNAME_M),aarch64)
+	PLATFORM = linux/arm64
+endif
+
+# ============================================================
+# Budowa
+# ============================================================
+
+.PHONY: build
+build:
+	podman build \
+		--platform $(PLATFORM) \
+		--build-arg OPENCODE_VERSION=latest \
+		-t $(IMAGE_NAME):$(IMAGE_TAG) \
+		-f Containerfile .
+
+.PHONY: build-no-cache
+build-no-cache:
+	podman build --no-cache \
+		--platform $(PLATFORM) \
+		--build-arg OPENCODE_VERSION=latest \
+		-t $(IMAGE_NAME):$(IMAGE_TAG) \
+		-f Containerfile .
+
+# ============================================================
+# Uruchomienie
+# ============================================================
+
+.PHONY: run
+run:
+	podman run --rm -it \
+		--cap-drop=ALL \
+		--security-opt=no-new-privileges \
+		-e OPENAI_API_KEY \
+		-v "$(PWD):/home/opencode/workdir:Z" \
+		$(IMAGE_NAME):$(IMAGE_TAG)
+
+.PHONY: run-headless
+run-headless:
+	podman run --rm -it \
+		--cap-drop=ALL \
+		--security-opt=no-new-privileges \
+		-e OPENAI_API_KEY \
+		-v "$(PWD):/home/opencode/workdir:Z" \
+		$(IMAGE_NAME):$(IMAGE_TAG) \
+		run "$(CMD)"
+
+.PHONY: shell
+shell:
+	podman run --rm -it \
+		--cap-drop=ALL \
+		--security-opt=no-new-privileges \
+		-e OPENAI_API_KEY \
+		-v "$(PWD):/home/opencode/workdir:Z" \
+		--entrypoint /bin/bash \
+		$(IMAGE_NAME):$(IMAGE_TAG)
+
+.PHONY: shell-root
+shell-root:
+	podman run --rm -it \
+		--cap-drop=ALL \
+		--security-opt=no-new-privileges \
+		-v "$(PWD):/home/opencode/workdir:Z" \
+		--user root \
+		--entrypoint /bin/bash \
+		$(IMAGE_NAME):$(IMAGE_TAG)
+
+# ============================================================
+# Testy
+# ============================================================
+
+.PHONY: test
+test: build
+	./tests/test_integration.sh $(IMAGE_NAME):$(IMAGE_TAG)
+
+.PHONY: test-quick
+test-quick:
+	podman run --rm $(IMAGE_NAME):$(IMAGE_TAG) opencode --version
+	podman run --rm $(IMAGE_NAME):$(IMAGE_TAG) git --version
+	podman run --rm $(IMAGE_NAME):$(IMAGE_TAG) whoami | grep opencode
+
+# ============================================================
+# Informacje
+# ============================================================
+
+.PHONY: size
+size:
+	podman images $(IMAGE_NAME):$(IMAGE_TAG) --format '{{.Size}}'
+
+.PHONY: history
+history:
+	podman history $(IMAGE_NAME):$(IMAGE_TAG)
+
+.PHONY: help
+help:
+	@echo "Targety Makefile:"
+	@echo "  build           — zbuduj obraz (domyślnie: $(IMAGE_NAME):$(IMAGE_TAG))"
+	@echo "  build-no-cache  — zbuduj bez cache"
+	@echo "  run             — uruchom TUI"
+	@echo "  run-headless    — uruchom headless (make run-headless CMD='twoja komenda')"
+	@echo "  shell           — wejdź do shella jako opencode"
+	@echo "  shell-root      — wejdź do shella jako root"
+	@echo "  test            — testy integracyjne"
+	@echo "  test-quick      — szybki test (wersja, git, whoami)"
+	@echo "  size            — sprawdź rozmiar obrazu"
+	@echo "  history         — historia warstw obrazu"
+```
+
+---
+
+## E. entrypoint.sh
+
+```bash
+#!/bin/bash
+# entrypoint.sh — Wrapper dla OpenCode CLI w kontenerze
+#
+# Opcjonalny: sprawdza klucze API przed uruchomieniem opencode,
+# ustawia domyślne timeouty i loguje wersję.
+#
+# Użycie w Containerfile:
+#   COPY entrypoint.sh /entrypoint.sh
+#   RUN chmod +x /entrypoint.sh
+#   ENTRYPOINT ["/entrypoint.sh"]
+#   CMD ["opencode"]
+
+set -euo pipefail
+
+log() {
+    echo "[opencode-container] $*" >&2
+}
+
+# Weryfikacja kluczy API (ostrzeżenie, nie blokada)
+warn_missing_key() {
+    local var_name="$1"
+    local provider="$2"
+    if [ -z "${!var_name:-}" ]; then
+        log "UWAGA: brak $var_name — $provider nie będzie dostępny"
+    fi
+}
+
+warn_missing_key "OPENAI_API_KEY" "OpenAI"
+warn_missing_key "ANTHROPIC_API_KEY" "Anthropic"
+warn_missing_key "GOOGLE_API_KEY" "Google"
+warn_missing_key "MISTRAL_API_KEY" "Mistral"
+warn_missing_key "OPENCODE_SEARCH_API_KEY" "Web Search"
+
+# Logowanie wersji
+if command -v opencode &>/dev/null; then
+    log "OpenCode $(opencode --version 2>/dev/null || echo '?')"
+else
+    log "ERROR: opencode not found in PATH"
+    exit 1
+fi
+
+# Ustaw domyślny timeout, jeśli nie podany
+export OPENCODE_TIMEOUT="${OPENCODE_TIMEOUT:-120000}"
+
+# Wykonaj polecenie (domyślnie: opencode --help)
+exec "$@"
+```
+
+---
+
+## F. docker-compose.yml
+
+```yaml
+# docker-compose.yml — OpenCode CLI w rootless Podman
+#
+# Uruchomienie:
+#   podman-compose up           # TUI (interaktywne)
+#   podman-compose run --rm opencode run "komenda"  # headless
+#
+# Wymagany plik .env z kluczami API:
+#   OPENAI_API_KEY=sk-...
+#   ANTHROPIC_API_KEY=sk-ant-...
+#   OPENCODE_SEARCH_API_KEY=...
+
+version: "3.9"
+
+services:
+  opencode:
+    image: ghcr.io/webbag/opencode:latest
+    build:
+      context: .
+      dockerfile: Containerfile
+      args:
+        OPENCODE_VERSION: latest
+    container_name: opencode
+    stdin_open: true
+    tty: true
+    environment:
+      - OPENAI_API_KEY=${OPENAI_API_KEY:-}
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
+      - GOOGLE_API_KEY=${GOOGLE_API_KEY:-}
+      - MISTRAL_API_KEY=${MISTRAL_API_KEY:-}
+      - OPENCODE_SEARCH_API_KEY=${OPENCODE_SEARCH_API_KEY:-}
+      - OPENCODE_TIMEOUT=${OPENCODE_TIMEOUT:-120000}
+    volumes:
+      - "${PWD}:/home/opencode/workdir:Z"
+      - "${HOME}/.config/opencode/opencode.json:/home/opencode/.config/opencode/opencode.json:ro,Z"
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    user: "1000:1000"
+    working_dir: /home/opencode/workdir
+```
+
+---
+
+## G. Struktura repozytorium (po implementacji)
+
+```
+opencode-image/
+├── .editorconfig
+├── .gitignore
+├── .dockerignore
+├── Containerfile
+├── LICENSE
+├── Makefile
+├── README.md
+├── cel.md
+├── docker-compose.yml
+├── entrypoint.sh
+├── plan-implementacji.md
+├── .github/
+│   └── workflows/
+│       └── build-and-publish.yml
+└── tests/
+    └── test_integration.sh
 ```
 
 ---
