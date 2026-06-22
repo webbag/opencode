@@ -2,26 +2,29 @@
 
 Rootless Podman container for [OpenCode](https://opencode.ai) AI coding agent with sandboxing and CI/CD.
 
+Published at `ghcr.io/webbag/opencode` (linux/amd64, linux/arm64). Multi-stage build with HEALTHCHECK.
+
 ## Quick start
 
 ```bash
-# Build
-podman build -t opencode:latest -f Containerfile .
+# Pull or build
+podman pull ghcr.io/webbag/opencode:latest
+# or: podman build -t opencode:latest -f Containerfile .
 
-# Run TUI with free model (big-pickle)
+# Run TUI
 podman run --rm -it \
   --cap-drop=ALL \
   --security-opt=no-new-privileges \
   -v "$(pwd):/home/opencode/workdir:Z" \
-  opencode:latest
+  ghcr.io/webbag/opencode:latest
 
-# Run headless with free model
+# Run headless
 podman run --rm -it \
   --cap-drop=ALL \
   --security-opt=no-new-privileges \
   -v "$(pwd):/home/opencode/workdir:Z" \
-  opencode:latest \
-  run -m opencode/big-pickle "Your command here"
+  ghcr.io/webbag/opencode:latest \
+  run "Your command here"
 ```
 
 ## Free models (no API key required)
@@ -34,22 +37,20 @@ podman run --rm -it \
 | `opencode/nemotron-3-ultra-free` | Nemotron 3 Ultra |
 | `opencode/north-mini-code-free` | North Mini Code |
 
-```bash
-# List available models
-make model
-# or
-podman run --rm opencode:latest models
-```
-
 ## Makefile
 
 ```bash
-make build      # build image
-make run        # run TUI (model: opencode/big-pickle)
-make run-headless CMD='refactor main.py'  # run headless
-make shell      # shell as opencode user
-make model      # list available models
-make test       # integration tests
+make build           # build image
+make run             # TUI (model: opencode/big-pickle)
+make run-headless    # headless: make run-headless CMD='refactor main.py'
+make shell           # shell as opencode user
+make shell-root      # shell as root
+make run-ro          # read-only rootfs (experimental)
+make test            # integration tests
+make test-security   # security tests
+make model           # list available models
+make size            # check image size
+make help            # all targets
 ```
 
 ## Security
@@ -59,7 +60,4 @@ make test       # integration tests
 - Rootless Podman — user namespace isolation
 - No `sudo` in image — reduced attack surface
 - API keys passed via `-e` at runtime, never built into image
-
-## Image
-
-Published at `ghcr.io/webbag/opencode` (linux/amd64, linux/arm64).
+- User `opencode` (UID 1000) without `--userns=keep-id`

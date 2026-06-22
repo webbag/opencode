@@ -1,25 +1,13 @@
-Wciel się w rolę eksperta DevOps i specjalisty ds. bezpieczeństwa. Przygotuj szczegółowy plan implementacji (w formacie Markdown) dla konteneryzacji narzędzia OpenCode CLI.
+Wciel się w rolę eksperta DevOps i specjalisty ds. bezpieczeństwa. Przygotuj szczegółowy plan implementacji (w formacie Markdown) dla konteneryzacji narzędzia OpenCode CLI na rootless Podman.
 
-Plan musi opierać się na następujących, głównych założeniach architektury i bezpieczeństwa:
+Środowisko: Ubuntu 24.04, Podman rootless bez `--userns=keep-id` — mapowanie UID przez domyślny mechanizm user namespace. W obrazie: opencode CLI, git, Python 3, nano, nmap, iputils-ping, iproute2, curl, wget, dnsutils. Bez sudo, bez setcap dla ping.
 
-Środowisko i narzędzie: Domyślnym silnikiem jest rootless Podman na systemach Linux Ubuntu 24 Należy wykorzystać jego natywne mechanizmy mapowania użytkowników, unikając problemów z uprawnieniami przy montowaniu wolumenów (bez używania --userns=keep-id).
+Bezpieczeństwo: `--cap-drop=ALL`, `--security-opt=no-new-privileges`, użytkownik `opencode` (UID 1000). Żadnych zbędnych capability — narzędzia diagnostyczne działają w ograniczonym zakresie (nmap -sT, nping --tcp). Montowanie ~/.ssh i ~/.gitconfig — w przyszłości.
 
-Podstawa obrazu ma być open code cli oraz git i python, oraz narzędzia do diagnozowania, nmap, ping, ip oraz inne powszechnie używane. Edytor nano. 
+Sieć: pełny egress do API (OpenAI, Anthropic, Google, Mistral, OpenCode Zen) oraz do dowolnych stron (websearch/webfetch opencode). Brak ingress, brak nasłuchujących portów.
 
-Izolacja i bezpieczeństwo (Sandboxing): Kontener musi ograniczać ryzyko ucieczki (container breakout) w przypadku wygenerowania niebezpiecznego kodu przez AI. Należy użyć flag zdejmujących uprawnienia (np. --cap-drop=ALL, no-new-privileges), 
+CI/CD: GitHub Actions → ghcr.io, multi-arch (amd64 + arm64), multi-stage build, HEALTHCHECK. Scan Trivy tylko w dokumentacji — nie został zaimplementowany (Code Scanning nieaktywne w repo).
 
-Montowanie wrażliwych plikików hosta (jak ~/.ssh czy ~/.gitconfig) będzie wykonywane w przyszłości w kolejnej wersji - uwzględnij to. Ponieważ pliki z kontenera będą wysyłane do prywatnych repozytorów na github lub w inne miejsca
+Licencja obrazu: Apache-2.0.
 
-Wymagania sieciowe: Kontener musi mieć możliwość komunikacji wychodzącej (egress) z zewnętrznymi API modeli językowych (OpenAI, Anthropic, Google, Mistral, OpenCode Zen oraz inne popularne). OpenCode wewnątrz kontenera musi mieć dostęp do interentu.  
-
-Dystrybucja i CI/CD: Kod źródłowy z Containerfile znajduje się na GitHubie. Obrazy mają być budowane i publikowane automatycznie za pomocą GitHub Actions do rejestru GitHub Container Registry (ghcr.io), aby uniknąć limitów pobrań z Docker Hub.
-
-Struktura dokumentu powinna być czytelna i zawierać następujące sekcje: Wymagania, Architektura i Bezpieczeństwo, Implementacja (konkretne komendy do budowy i bezpiecznego uruchomienia z odpowiednimi flagami), Testowanie, CI/CD oraz Utrzymanie - zgodnie z procesem SDLC i nalepszymi praktykami architektonicznymi tego typu rozwiązań. 
-
-Plan implementacji podziel na 4 etapy zwane - SCOPE
-Scenariusz, cel, ograniczenia, procedura weryfikacji, eskalacja.
-
-Kod będzie również pisany w 4 etapach SCOPE, plan implementacji ma to uwzgędniać.
-
-Kod ma być dokumentowany. 
-
+Plan podziel na 4 etapy SCOPE (Scenariusz, Cel, Ograniczenia, Procedura weryfikacji, Eskalacja) + Fazę 0 przygotowawczą. Dołącz appendiksy: Containerfile, GitHub Actions, Makefile, docker-compose.yml, struktura repozytorium, użycie. Każdy SCOPE ma mieć uwagi techniczne z uzasadnieniem decyzji.
