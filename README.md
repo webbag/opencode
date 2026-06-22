@@ -61,3 +61,9 @@ make help            # all targets
 - No `sudo` in image — reduced attack surface
 - API keys passed via `-e` at runtime, never built into image
 - User `opencode` (UID 1000) without `--userns=keep-id`
+
+## License
+
+This container image is licensed under [Apache 2.0](LICENSE).
+
+OpenCode CLI is [MIT-licensed](https://github.com/anomalyco/opencode) © Anomaly.
