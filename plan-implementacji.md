@@ -1,11 +1,12 @@
 # Plan implementacji — Konteneryzacja OpenCode CLI
 
-> **Status dokumentu:** Roboczy v3  
+> **Status dokumentu:** Roboczy  
 > **Data:** 2026-06-21  
 > **Autor:** DevOps/Security Engineer  
 > **Cel:** Rootless Podman container dla OpenCode CLI z sandboxingiem i CI/CD do ghcr.io  
 > **GitHub:** [webbag/opencode](https://github.com/webbag/opencode)  
-> **Rejestr obrazów:** `ghcr.io/webbag/opencode`
+> **Rejestr obrazów:** `ghcr.io/webbag/opencode`  
+> **Uwaga:** Scan Trivy nie został zaimplementowany w CI — świadoma rezygnacja (GitHub Code Scanning nieaktywne w repo). Treść dotycząca Trivy w dokumencie pozostawiona jako dokumentacja planu.
 
 ---
 
@@ -20,9 +21,8 @@
    - [SCOPE 2: Bezpieczeństwo i sandboxing](#scope-2-bezpieczeństwo-i-sandboxing)
    - [SCOPE 3: Sieć i integracja z API](#scope-3-sieć-i-integracja-z-api)
    - [SCOPE 4: CI/CD i publikacja](#scope-4-cicd-i-publikacja)
-4. [Uwagi techniczne zbiorcze](#6-uwagi-techniczne-zbiorcze--zmiany-względem-v2-planu)
-5. [Testowanie](#4-testowanie)
-6. [Utrzymanie](#5-utrzymanie)
+4. [Testowanie](#4-testowanie)
+5. [Utrzymanie](#5-utrzymanie)
 
 ---
 
@@ -38,8 +38,8 @@
 | F-04 | Kontener ma dostęp wychodzący (egress) do API: OpenAI, Anthropic, Google, Mistral, OpenCode Zen | Krytyczny |
 | F-05 | OpenCode może przeszukiwać internet (websearch) i pobierać treści z wielu stron (webfetch) | Krytyczny |
 | F-06 | OpenCode wewnątrz kontenera może zapisywać pliki do montowanego wolumenu | Wysoki |
-| F-07 | W przyszłości (v2): montowanie ~/.ssh, ~/.gitconfig z hosta | Średni |
-| F-08 | W przyszłości (v2): wysyłanie artefaktów do GitHub z kontenera | Średni |
+| F-07 | W przyszłości: montowanie ~/.ssh, ~/.gitconfig z hosta | Średni |
+| F-08 | W przyszłości: wysyłanie artefaktów do GitHub z kontenera | Średni |
 
 ### 1.2 Niefunkcjonalne
 
@@ -56,7 +56,7 @@
 
 ### 1.3 Ograniczenia (Constraints)
 
-- Brak `--userns=keep-id` — mapowanie przez Podman `--uidmap` / `--gidmap`
+- Brak `--userns=keep-id` — mapowanie przez domyślny mechanizm user namespace Podmana
 - AVX wymagane przez opencode → CPU type `host` w QEMU/KVM
 - Binary opencode waży ~157 MB — wpływa na czas budowy
 - OpenCode nie ma oficjalnego Dockerfile — budujemy od zera
@@ -106,7 +106,7 @@
 |---|---|---|
 | **Capabilities** | `--cap-drop=ALL` | Eliminuje wszystkie capability Linuksa — kontener nie może wykonywać operacji wymagających przywilejów (mount, raw socket, ptrace itp.) |
 | **Nowe privileges** | `--security-opt=no-new-privileges` | Zapobiega eskalacji przez setuid/binary z capability |
-| **User namespace** | Podman rootless + `--uidmap` | Domyślne mapowanie użytkownika host → root/boundary w kontenerze; unikamy `keep-id`, które mapuje host UID 1:1 |
+| **User namespace** | Podman rootless | Domyślne mapowanie użytkownika host → root/boundary w kontenerze; unikamy `keep-id`, które mapuje host UID 1:1 |
 | **Seccomp** | Domyślny profil Podmana | Ogranicza dostępne syscalle |
 | **Filesystem** | Volumes tylko do odczytu (gdzie możliwe) | Zmniejsza ryzyko modyfikacji binarek kontenera |
 | **SELinux/AppArmor** | Profil `container` (domyślny) | Dodatkowa izolacja na Ubuntu |
@@ -114,21 +114,12 @@
 ### 2.3 Zarządzanie tożsamością
 
 - Użytkownik w kontenerze: **opencode** (UID 1000) — odpowiada domyślnemu UID użytkownika na typowym hoście Ubuntu
-- Mapowanie: UID 1000 hosta → UID 1000 w kontenerze (za pomocą `--uidmap`, a nie `--userns=keep-id`)
+- Mapowanie: UID 1000 hosta → UID 1000 w kontenerze (bez `--userns=keep-id`)
 - Grupa: **opencode** (GID 1000)
 
-Mapowanie realizowane przez:
+Mapowanie realizowane przez domyślny mechanizm user namespace Podmana — bez `--userns=keep-id`.
 
-```bash
-# Automatyczne mapowanie (Podman rootless):
-# Host UID=1000 → Container UID=0..65535 przez /etc/subuid
-# My tworzymy własne mapowanie by uniknąć keep-id:
-podman run --uidmap=0:100000:1000 --uidmap=1000:1000:1 --uidmap=1001:101001:64536 ...
-```
-
-**Uwaga:** Rzeczywiste mapowanie zależy od konfiguracji `/etc/subuid` i `/etc/subgid` na hoście. W rootless Podman domyślnie: uid 1000 hosta → uid 0 w kontenerze. Aby zachować uid 1000 wewnątrz bez `keep-id`, stosujemy jawne `--uidmap`.
-
-### 2.4 Obsługa wolumenów (v1 vs v2)
+### 2.4 Obsługa wolumenów
 
 **Wersja 1 (obecna):**
 - Montowany wolumen roboczy: `-v /host/project:/workdir:Z`
@@ -240,11 +231,11 @@ podman images opencode:scope1 --format '{{.Size}}'
 
 #### Uwagi techniczne (SCOPE 1)
 
-1. **Brak `sudo`** — plan v2 instalował `sudo`, ale użytkownik `opencode` i tak nie ma uprawnień sudo. Binary sudo to niepotrzebny wektor ataku — usunięto.
-2. **`python3-pip` i `python3-venv`** — dodają ~200 MB do obrazu. Jeśli opencode nie wymaga pip w runtime, rozważyć usunięcie. W v3 pozostawiamy, bo mogą być potrzebne do skryptów Python generowanych przez AI.
-3. **ARG TARGETARCH** — w planie v2 zdefiniowany, ale nieużywany. Oficjalny skrypt instalacyjny opencode sam wykrywa architekturę. Parametr usunięto z Containerfile.
+1. **Brak `sudo`** — użytkownik `opencode` nie ma uprawnień sudo. Binary sudo to niepotrzebny wektor ataku — nie został zainstalowany.
+2. **`python3-pip` i `python3-venv`** — dodają ~200 MB do obrazu. Jeśli opencode nie wymaga pip w runtime, rozważyć usunięcie. Póki co pozostawiamy, bo mogą być potrzebne do skryptów Python generowanych przez AI.
+3. **ARG TARGETARCH** — oficjalny skrypt instalacyjny opencode sam wykrywa architekturę. Parametr nie jest potrzebny w Containerfile.
 4. **Instalacja opencode jako root** — celowa: binary ląduje w `/usr/local/bin` (dostępny dla wszystkich użytkowników). Instalacja jako `opencode` user wymagałaby kopiowania do katalogu w `$PATH` użytkownika.
-5. **`netcat-openbsd`** — dodany w planie v2, ale nie wymagany. Pozostawiamy jako narzędzie przydatne do debugowania sieci.
+5. **`netcat-openbsd`** — nie jest wymagany, ale pozostawiamy jako narzędzie przydatne do debugowania sieci.
 
 ---
 
@@ -259,7 +250,7 @@ Uruchomienie kontenera z maksymalnym ograniczeniem uprawnień. AI może wygenero
 - Kontener uruchomiony z `--cap-drop=ALL`
 - `--security-opt=no-new-privileges=true`
 - Użytkownik `opencode` (UID 1000) bez praw `sudo`
-- Mapowanie UID przez `--uidmap`/`--gidmap` bez `--userns=keep-id`
+- Mapowanie UID/GID przez Podman rootless bez `--userns=keep-id`
 - Root wewnątrz kontenera (UID 0) — jeśli istnieje — nie ma rzeczywistych uprawnień na hoście
 - Domyślny profil seccomp Podmana
 - Potwierdzenie, że `ip link` (operacje wymagające CAP_NET_ADMIN) nie działają
@@ -279,9 +270,6 @@ Uruchomienie kontenera z maksymalnym ograniczeniem uprawnień. AI może wygenero
 podman run --rm -it \
   --cap-drop=ALL \
   --security-opt=no-new-privileges \
-  --uidmap=0:100000:1000 \
-  --uidmap=1000:1000:1 \
-  --uidmap=1001:101001:64536 \
   opencode:scope2
 
 # 2. Weryfikacja wewnątrz kontenera
@@ -382,14 +370,9 @@ podman run --rm -it opencode:scope3 ss -tlnp
 
 #### Uwagi techniczne (SCOPE 3)
 
-1. **entrypoint.sh** — opcjonalny wrapper wokół opencode. Może:
-   - Sprawdzać obecność kluczy API przed uruchomieniem
-   - Ustawiać domyślne timeouty
-   - Logować wersję i konfigurację na starcie
-   Nie jest wymagany przez opencode (które samo radzi sobie z brakiem API key), ale poprawia UX.
-2. **Websearch i webfetch** — to wbudowane funkcje opencode, nie wymagają dodatkowych pakietów w obrazie. `curl` i `wget` są dla diagnostyki i potencjalnych skryptów użytkownika.
-3. **Zmienne środowiskowe** — klucze API są przekazywane przez `-e` w `podman run`, NIGDY nie buildowane w obraz. To krytyczne dla bezpieczeństwa (klucze nie wyciekają do rejestru).
-4. **Brak ingress** — kontener nie nasłuchuje na żadnych portach. Potwierdzamy przez `ss -tlnp` które powinno zwrócić pusty wynik.
+1. **Websearch i webfetch** — to wbudowane funkcje opencode, nie wymagają dodatkowych pakietów w obrazie. `curl` i `wget` są dla diagnostyki i potencjalnych skryptów użytkownika.
+2. **Zmienne środowiskowe** — klucze API są przekazywane przez `-e` w `podman run`, NIGDY nie buildowane w obraz. To krytyczne dla bezpieczeństwa (klucze nie wyciekają do rejestru).
+3. **Brak ingress** — kontener nie nasłuchuje na żadnych portach. Potwierdzamy przez `ss -tlnp` które powinno zwrócić pusty wynik.
 
 ---
 
@@ -447,26 +430,6 @@ trivy image ghcr.io/webbag/opencode:test
 2. **QEMU dla arm64** — `qemu-user-static` musi być zainstalowane na runnerze. W Ubuntu 24.04 działa z `apt-get install qemu-user-static`.
 3. **Trivy scan** — tylko CRITICAL i HIGH severity. Lower severity (MEDIUM, LOW) są zwykle fałszywie pozytywne dla obrazów opartych na Ubuntu.
 4. **Tagowanie** — `latest` i `v*` (semver). Pull requesty też budują obraz (dla weryfikacji), ale nie pushują do rejestru.
-
----
-
-## 6. Uwagi techniczne zbiorcze — zmiany względem v2 planu
-
-| Lp. | Obszar | v2 (plan oryginalny) | v3 (poprawiony) | Uzasadnienie |
-|-----|--------|---------------------|-----------------|--------------|
-| 1 | **`sudo` w obrazie** | Instalowany jako pakiet systemowy | **Usunięty** | Użytkownik `opencode` nie ma praw sudo; binary sudo to niepotrzebny wektor ataku |
-| 2 | **ARG TARGETARCH** | Zdefiniowany, ale nieużywany | **Usunięty** | Oficjalny skrypt opencode sam wykrywa architekturę; martwy parametr |
-| 3 | **Kolejność warstw** | `apt` → opencode → user → USER | **Bez zmian** (kolejność poprawna) | Instalacja opencode jako root zapewnia dostęp globalny w `/usr/local/bin` |
-| 4 | **`setcap` dla ping** | Zakomentowany (`# RUN setcap...`) | **Bez zmian** | Pozostawiony jako zakomentowany — dokumentacja decyzji, nie kod |
-| 5 | **netcat-openbsd** | Dodany w apt | **Bez zmian** | Przydatny do debugowania sieci, mały narzut (~2 MB) |
-| 6 | **Faza 0** | Brak | **Dodana** | Przygotowanie repozytorium: .gitignore, .dockerignore, Makefile, .editorconfig |
-| 7 | **Makefile** | Brak | **Dodany jako Appendix D** | Usprawnia developer experience; targety: build, run, test, secure-run |
-| 8 | **entrypoint.sh** | Brak | **Dodany jako Appendix E** | Opcjonalny wrapper; sprawdza klucze API, loguje wersję |
-| 9 | **docker-compose.yml** | Brak | **Dodany jako Appendix F** | Ułatwia uruchomienie z flagami sandboxingu |
-| 10 | **.dockerignore** | Brak | **Dodany** | Przyspiesza build; zapobiega przesyłaniu zbędnych plików do kontekstu |
-| 11 | **Uwagi techniczne SCOPE** | Brak | **Dodane do każdego SCOPE** | Uzasadnienie decyzji technicznych, alternatywy, pułapki |
-| 12 | **Testowanie w CI** | Testy opisane, ale nie zautomatyzowane | **test_integration.sh** jako osobny plik | Uruchamiany w GitHub Actions po buildzie |
-| 13 | **Oznaczenie wersji dokumentu** | Roboczy v2 | **Roboczy v3** | — |
 
 ---
 
@@ -647,7 +610,7 @@ FROM ubuntu:${UBUNTU_VERSION}
 LABEL org.opencontainers.image.title="OpenCode CLI Container"
 LABEL org.opencontainers.image.description="Rootless Podman container for OpenCode AI coding agent"
 LABEL org.opencontainers.image.source="https://github.com/webbag/opencode"
-LABEL org.opencontainers.image.licenses="MIT"
+LABEL org.opencontainers.image.licenses="Apache-2.0"
 LABEL org.opencontainers.image.version="1.0.0"
 
 # ============================================================
@@ -737,9 +700,6 @@ podman build \
 podman run --rm -it \
   --cap-drop=ALL \
   --security-opt=no-new-privileges \
-  --uidmap=0:100000:1000 \
-  --uidmap=1000:1000:1 \
-  --uidmap=1001:101001:64536 \
   -e OPENAI_API_KEY="${OPENAI_API_KEY}" \
   -v "$(pwd):/home/opencode/workdir:Z" \
   -v "$(pwd)/opencode.json:/home/opencode/.config/opencode/opencode.json:ro,Z" \
@@ -950,60 +910,9 @@ help:
 
 ---
 
-## E. entrypoint.sh
-
-```bash
-#!/bin/bash
-# entrypoint.sh — Wrapper dla OpenCode CLI w kontenerze
-#
-# Opcjonalny: sprawdza klucze API przed uruchomieniem opencode,
-# ustawia domyślne timeouty i loguje wersję.
-#
-# Użycie w Containerfile:
-#   COPY entrypoint.sh /entrypoint.sh
-#   RUN chmod +x /entrypoint.sh
-#   ENTRYPOINT ["/entrypoint.sh"]
-#   CMD ["opencode"]
-
-set -euo pipefail
-
-log() {
-    echo "[opencode-container] $*" >&2
-}
-
-# Weryfikacja kluczy API (ostrzeżenie, nie blokada)
-warn_missing_key() {
-    local var_name="$1"
-    local provider="$2"
-    if [ -z "${!var_name:-}" ]; then
-        log "UWAGA: brak $var_name — $provider nie będzie dostępny"
-    fi
-}
-
-warn_missing_key "OPENAI_API_KEY" "OpenAI"
-warn_missing_key "ANTHROPIC_API_KEY" "Anthropic"
-warn_missing_key "GOOGLE_API_KEY" "Google"
-warn_missing_key "MISTRAL_API_KEY" "Mistral"
-warn_missing_key "OPENCODE_SEARCH_API_KEY" "Web Search"
-
-# Logowanie wersji
-if command -v opencode &>/dev/null; then
-    log "OpenCode $(opencode --version 2>/dev/null || echo '?')"
-else
-    log "ERROR: opencode not found in PATH"
-    exit 1
-fi
-
-# Ustaw domyślny timeout, jeśli nie podany
-export OPENCODE_TIMEOUT="${OPENCODE_TIMEOUT:-120000}"
-
-# Wykonaj polecenie (domyślnie: opencode --help)
-exec "$@"
-```
-
 ---
 
-## F. docker-compose.yml
+## E. docker-compose.yml
 
 ```yaml
 # docker-compose.yml — OpenCode CLI w rootless Podman
@@ -1050,7 +959,7 @@ services:
 
 ---
 
-## G. Struktura repozytorium (po implementacji)
+## F. Struktura repozytorium (po implementacji)
 
 ```
 opencode-image/
@@ -1063,7 +972,6 @@ opencode-image/
 ├── README.md
 ├── cel.md
 ├── docker-compose.yml
-├── entrypoint.sh
 ├── plan-implementacji.md
 ├── .github/
 │   └── workflows/
