@@ -1,5 +1,8 @@
 # OpenCode CLI Container
 
+> This project is not created by or affiliated with the OpenCode team.  
+> "OpenCode" is a trademark of Anomaly.
+
 Rootless Podman container for [OpenCode](https://opencode.ai) AI coding agent with sandboxing and CI/CD.
 
 Published at `ghcr.io/webbag/opencode` (linux/amd64, linux/arm64). Multi-stage build with HEALTHCHECK.
