@@ -67,3 +67,6 @@ make help            # all targets
 This container image is licensed under [Apache 2.0](LICENSE).
 
 OpenCode CLI is [MIT-licensed](https://github.com/anomalyco/opencode) © Anomaly.
+
+> This project is not created by or affiliated with the OpenCode team.  
+> "OpenCode" is a trademark of Anomaly.
