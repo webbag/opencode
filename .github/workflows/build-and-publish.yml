@@ -50,7 +50,7 @@ jobs:
           image: ${{ env.IMAGE_NAME }}
           tags: |
             ${{ matrix.variant == 'ubi9' && 'ubi9' || 'latest' }}
-            ${{ matrix.variant == 'ubi9' && format('{0}-ubi9', github.ref_name) || github.ref_name }}
+            ${{ matrix.variant == 'ubi9' && format('{0}-ubi9', replace(github.ref_name, '/', '-')) || replace(github.ref_name, '/', '-') }}
           containerfiles: |
             ${{ matrix.variant == 'ubi9' && './Containerfile.ubi9' || './Containerfile' }}
           platforms: linux/amd64, linux/arm64
