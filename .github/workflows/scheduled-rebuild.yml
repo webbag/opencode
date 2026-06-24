@@ -1,6 +1,7 @@
 # .github/workflows/scheduled-rebuild.yml
-# Cotygodniowy rebuild obrazu — łapie najnowsze łatki bezpieczeństwa Ubuntu
-# oraz nowe wersje opencode CLI.
+# Cotygodniowy rebuild obrazów — łapie najnowsze łatki bezpieczeństwa
+# (Ubuntu apt / UBI9 dnf) oraz nowe wersje opencode CLI.
+# Buduje dwa warianty: Ubuntu 24.04 i Red Hat UBI 9.
 
 name: Weekly scheduled rebuild
 
@@ -15,6 +16,10 @@ env:
 
 jobs:
   rebuild:
+    strategy:
+      matrix:
+        variant: [ubuntu, ubi9]
+      fail-fast: false
     runs-on: ubuntu-24.04
     permissions:
       contents: read
@@ -42,10 +47,10 @@ jobs:
         with:
           image: ${{ env.IMAGE_NAME }}
           tags: |
-            latest
-            weekly-${{ github.run_number }}
+            ${{ matrix.variant == 'ubi9' && 'ubi9' || 'latest' }}
+            ${{ matrix.variant == 'ubi9' && format('weekly-{0}-ubi9', github.run_number) || format('weekly-{0}', github.run_number) }}
           containerfiles: |
-            ./Containerfile
+            ${{ matrix.variant == 'ubi9' && './Containerfile.ubi9' || './Containerfile' }}
           platforms: linux/amd64, linux/arm64
 
       - name: Push to GHCR
@@ -56,6 +61,7 @@ jobs:
           registry: ${{ env.REGISTRY }}
 
       - name: Run Trivy scan
+        if: matrix.variant == 'ubuntu'
         uses: aquasecurity/trivy-action@master
         with:
           image-ref: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest

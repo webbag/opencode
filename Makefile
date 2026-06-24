@@ -1,5 +1,6 @@
 IMAGE_NAME ?= opencode
 IMAGE_TAG ?= latest
+CONTAINERFILE ?= Containerfile
 PLATFORM ?= linux/amd64
 MODEL ?= opencode/big-pickle
 
@@ -20,7 +21,7 @@ build:
 		--platform $(PLATFORM) \
 		--build-arg OPENCODE_VERSION=latest \
 		-t $(IMAGE_NAME):$(IMAGE_TAG) \
-		-f Containerfile .
+		-f $(CONTAINERFILE) .
 
 .PHONY: build-no-cache
 build-no-cache:
@@ -28,7 +29,15 @@ build-no-cache:
 		--platform $(PLATFORM) \
 		--build-arg OPENCODE_VERSION=latest \
 		-t $(IMAGE_NAME):$(IMAGE_TAG) \
-		-f Containerfile .
+		-f $(CONTAINERFILE) .
+
+.PHONY: build-ubi9
+build-ubi9:
+	$(MAKE) build CONTAINERFILE=Containerfile.ubi9 IMAGE_TAG=ubi9
+
+.PHONY: build-ubi9-no-cache
+build-ubi9-no-cache:
+	$(MAKE) build-no-cache CONTAINERFILE=Containerfile.ubi9 IMAGE_TAG=ubi9
 
 # ============================================================
 # Uruchomienie
@@ -105,6 +114,14 @@ test-security: build
 test-quick:
 	podman run --rm --entrypoint /bin/bash $(IMAGE_NAME):$(IMAGE_TAG) -c "opencode --version && git --version && whoami"
 
+.PHONY: test-ubi9
+test-ubi9: build-ubi9
+	./tests/test_integration.sh $(IMAGE_NAME):ubi9
+
+.PHONY: test-security-ubi9
+test-security-ubi9: build-ubi9
+	./tests/test_security.sh $(IMAGE_NAME):ubi9
+
 # ============================================================
 # Informacje
 # ============================================================
@@ -124,16 +141,20 @@ history:
 .PHONY: help
 help:
 	@echo "Targety Makefile:"
-	@echo "  build           — zbuduj obraz (domyślnie: $(IMAGE_NAME):$(IMAGE_TAG))"
-	@echo "  build-no-cache  — zbuduj bez cache"
-	@echo "  run             — uruchom TUI (model: $(MODEL))"
-	@echo "  run-headless    — uruchom headless (make run-headless CMD='polecenie')"
-	@echo "  shell           — wejdź do shella jako opencode"
-	@echo "  shell-root      — wejdź do shella jako root"
-	@echo "  run-ro          — uruchom z --read-only-rootfs (eksperymentalne)"
-	@echo "  test            — testy integracyjne"
-	@echo "  test-security   — testy bezpieczeństwa"
-	@echo "  test-quick      — szybki test (wersja, git, whoami)"
-	@echo "  model           — sprawdź dostępne modele w obrazie"
-	@echo "  size            — sprawdź rozmiar obrazu"
-	@echo "  history         — historia warstw obrazu"
+	@echo "  build                   — zbuduj obraz (domyślnie: $(IMAGE_NAME):$(IMAGE_TAG))"
+	@echo "  build-no-cache          — zbuduj bez cache"
+	@echo "  build-ubi9             — zbuduj obraz na UBI 9 (tag: ubi9)"
+	@echo "  build-ubi9-no-cache    — zbuduj obraz na UBI 9 bez cache"
+	@echo "  run                    — uruchom TUI (model: $(MODEL))"
+	@echo "  run-headless           — uruchom headless (make run-headless CMD='polecenie')"
+	@echo "  shell                  — wejdź do shella jako opencode"
+	@echo "  shell-root             — wejdź do shella jako root"
+	@echo "  run-ro                 — uruchom z --read-only-rootfs (eksperymentalne)"
+	@echo "  test                   — testy integracyjne"
+	@echo "  test-security          — testy bezpieczeństwa"
+	@echo "  test-ubi9             — testy integracyjne na UBI 9"
+	@echo "  test-security-ubi9    — testy bezpieczeństwa na UBI 9"
+	@echo "  test-quick             — szybki test (wersja, git, whoami)"
+	@echo "  model                  — sprawdź dostępne modele w obrazie"
+	@echo "  size                   — sprawdź rozmiar obrazu"
+	@echo "  history                — historia warstw obrazu"
