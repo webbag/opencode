@@ -1,0 +1,90 @@
+# Containerfile.ubi9 — OpenCode CLI w rootless Podman (Red Hat UBI 9)
+#
+# Bazuje na Red Hat Universal Base Image 9 (microdnf zamiast apt).
+# Różnice względem Containerfile (Ubuntu):
+#   - microdnf zamiast apt-get
+#   - microdnf clean all zamiast rm -rf /var/lib/apt/lists/*
+#   - iputils zamiast iputils-ping
+#   - iproute zamiast iproute2
+#   - bind-utils zamiast dnsutils
+#   - nmap-ncat zamiast netcat-openbsd
+#   - brak userdel ubuntu (UBI nie ma domyślnego usera)
+#
+# Budowa: podman build -t opencode:ubi9 -f Containerfile.ubi9 .
+#
+# Multi-stage build:
+#   Stage 1 (opencode-builder): pobiera binary opencode CLI
+#   Stage 2 (final):            obraz właściwy z narzędziami i użytkownikiem
+
+# ============================================================
+# Stage 1: opencode-builder
+# ============================================================
+
+FROM registry.access.redhat.com/ubi9/ubi:latest AS opencode-builder
+
+ARG OPENCODE_VERSION=latest
+
+RUN microdnf install -y curl ca-certificates && \
+    microdnf clean all
+
+RUN curl -fsSL https://opencode.ai/install | bash && \
+    cp /root/.opencode/bin/opencode /opencode && \
+    /opencode --version
+
+# ============================================================
+# Stage 2: final
+# ============================================================
+
+FROM registry.access.redhat.com/ubi9/ubi:latest
+
+LABEL org.opencontainers.image.title="OpenCode CLI Container (UBI9)"
+LABEL org.opencontainers.image.description="Rootless Podman container for OpenCode AI coding agent, UBI9 variant"
+LABEL org.opencontainers.image.source="https://github.com/webbag/opencode"
+LABEL org.opencontainers.image.licenses="Apache 2.0"
+LABEL org.opencontainers.image.version="1.0.0"
+
+RUN microdnf upgrade -y && \
+    microdnf install -y \
+        git \
+        python3 \
+        python3-pip \
+        python3-venv \
+        nano \
+        curl \
+        ca-certificates \
+        nmap \
+        iputils \
+        iproute \
+        bind-utils \
+        nmap-ncat \
+        wget \
+        bash \
+    && microdnf clean all
+
+COPY --from=opencode-builder /opencode /usr/local/bin/opencode
+
+RUN opencode --version
+
+RUN groupadd -g 1000 opencode && \
+    useradd -m -u 1000 -g 1000 -s /bin/bash opencode && \
+    mkdir -p /home/opencode/workdir \
+             /home/opencode/.config/opencode \
+             /home/opencode/.local && \
+    chown -R opencode:opencode /home/opencode
+
+ENV HOME=/home/opencode
+ENV OPENCODE_HOME=/home/opencode/.config/opencode
+ENV PATH="/home/opencode/.local/bin:${PATH}"
+
+WORKDIR /home/opencode/workdir
+
+USER opencode
+
+HEALTHCHECK --interval=30s --timeout=10s --start-period=15s --retries=3 \
+    CMD opencode --version > /dev/null 2>&1 || exit 1
+
+ENV OPENCODE_DEFAULT_MODEL=opencode/big-pickle
+ENV OPENCODE_MODEL=opencode/big-pickle
+
+ENTRYPOINT ["opencode"]
+CMD ["-m", "opencode/big-pickle"]

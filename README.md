@@ -6,14 +6,25 @@
 
 Rootless Podman container for [OpenCode](https://opencode.ai) AI coding agent with sandboxing and CI/CD.
 
-Published at `ghcr.io/webbag/opencode` (linux/amd64, linux/arm64). Multi-stage build with HEALTHCHECK.
+Published at `ghcr.io/webbag/opencode` (linux/amd64, linux/arm64) in two variants:
+
+| Variant | Base | Image tag |
+|---|---|---|
+| **Ubuntu** | Ubuntu 24.04 LTS | `latest`, `v*` |
+| **UBI9** | Red Hat UBI 9 | `ubi9`, `v*-ubi9` |
+
+Multi-stage build with HEALTHCHECK.
 
 ## Quick start
 
 ```bash
-# Pull or build
+# Pull or build (Ubuntu variant)
 podman pull ghcr.io/webbag/opencode:latest
 # or: podman build -t opencode:latest -f Containerfile .
+
+# Pull or build (UBI9 variant)
+podman pull ghcr.io/webbag/opencode:ubi9
+# or: podman build -t opencode:ubi9 -f Containerfile.ubi9 .
 
 # Run TUI
 podman run --rm -it \
@@ -44,17 +55,20 @@ podman run --rm -it \
 ## Makefile
 
 ```bash
-make build           # build image
-make run             # TUI (model: opencode/big-pickle)
-make run-headless    # headless: make run-headless CMD='refactor main.py'
-make shell           # shell as opencode user
-make shell-root      # shell as root
-make run-ro          # read-only rootfs (experimental)
-make test            # integration tests
-make test-security   # security tests
-make model           # list available models
-make size            # check image size
-make help            # all targets
+make build              # build image (Ubuntu)
+make build-ubi9        # build image (UBI9)
+make run                # TUI (model: opencode/big-pickle)
+make run-headless       # headless: make run-headless CMD='refactor main.py'
+make shell              # shell as opencode user
+make shell-root         # shell as root
+make run-ro             # read-only rootfs (experimental)
+make test               # integration tests (Ubuntu)
+make test-ubi9         # integration tests (UBI9)
+make test-security      # security tests (Ubuntu)
+make test-security-ubi9 # security tests (UBI9)
+make model              # list available models
+make size               # check image size
+make help               # all targets
 ```
 
 ## Security

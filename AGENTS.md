@@ -6,7 +6,8 @@ Obraz kontenera OpenCode CLI dla rootless Podman. **To nie jest projekt z kodem 
 
 | Plik | Rola |
 |---|---|
-| `Containerfile` | Multi-stage build: stage 1 pobiera binary opencode, stage 2 finalny obraz |
+| `Containerfile` | Multi-stage build: Ubuntu 24.04 (apt) |
+| `Containerfile.ubi9` | Multi-stage build: Red Hat UBI 9 (microdnf) |
 | `Makefile` | Nakładka na `podman` — używaj jej zamiast raw commands |
 | `docker-compose.yml` | Dla `podman-compose up` |
 | `tests/test_integration.sh` | 13 testów (wersja, git, python, capabilities, sieć, nmap) |
@@ -15,11 +16,14 @@ Obraz kontenera OpenCode CLI dla rootless Podman. **To nie jest projekt z kodem 
 ## Komendy
 
 ```bash
-make build                    # podman build --platform auto
-make run                      # TUI z --cap-drop=ALL
+make build                    # podman build --platform auto (Ubuntu)
+make build-ubi9              # podman build na Red Hat UBI 9
+make run                      # TUI z --cap-drop=ALL (Ubuntu)
 make run-headless CMD='...'   # headless mode
-make test                     # build + test_integration.sh
-make test-security            # build + test_security.sh
+make test                     # build + test_integration.sh (Ubuntu)
+make test-ubi9               # build + test_integration.sh na UBI 9
+make test-security            # build + test_security.sh (Ubuntu)
+make test-security-ubi9      # build + test_security.sh na UBI 9
 make test-quick               # szybki test bez builda (wersja, git, whoami)
 make model                    # lista modeli w obrazie
 make size                     # rozmiar obrazu
@@ -28,8 +32,11 @@ make size                     # rozmiar obrazu
 ## Architektura
 
 - **Silnik kontenerów**: Podman (NIE Docker). CI używa `buildah-build` z `redhat-actions`.
-- **Obraz**: `ghcr.io/webbag/opencode` (linux/amd64 + linux/arm64)
+- **Obraz**: `ghcr.io/webbag/opencode` (linux/amd64 + linux/arm64) — dwa warianty:
+  - `latest` / `v*` — Ubuntu 24.04
+  - `ubi9` / `v*-ubi9` — Red Hat UBI 9
 - **Entrypoint**: `opencode`, default `CMD ["-m", "opencode/big-pickle"]`
+- **Różnice Ubuntu vs UBI9**: `apt-get` → `microdnf`, `iputils-ping` → `iputils`, `iproute2` → `iproute`, `dnsutils` → `bind-utils`, `netcat-openbsd` → `nmap-ncat`
 - **Użytkownik**: `opencode` (UID/GID 1000) — bez sudo, bez setcap
 - **Kolejność warstw w Containerfile** (ważna): apt → opencode CLI → user opencode → ENV → USER → HEALTHCHECK → ENTRYPOINT
 - **Klucze API**: przekazywane przez `-e` w runtime, NIGDY nie buildowane w obraz

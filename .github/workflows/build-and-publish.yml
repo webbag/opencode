@@ -1,12 +1,13 @@
 # .github/workflows/build-and-publish.yml
 # Budowa i publikacja obrazu OpenCode CLI na ghcr.io
-# Uruchamiany na push do main oraz na tagi v*
+# Buduje dwa warianty: Ubuntu 24.04 i Red Hat UBI 9
+# Uruchamiany na push (dowolna gałąź) oraz na tagi v*
 
 name: Build and publish OpenCode image
 
 on:
   push:
-    branches: [main]
+    branches: ["**"]
     tags: ["v*"]
   pull_request:
     branches: [main]
@@ -17,6 +18,10 @@ env:
 
 jobs:
   build-and-push:
+    strategy:
+      matrix:
+        variant: [ubuntu, ubi9]
+      fail-fast: false
     runs-on: ubuntu-24.04
     permissions:
       contents: read
@@ -44,14 +49,14 @@ jobs:
         with:
           image: ${{ env.IMAGE_NAME }}
           tags: |
-            latest
-            ${{ github.ref_name }}
+            ${{ matrix.variant == 'ubi9' && 'ubi9' || 'latest' }}
+            ${{ matrix.variant == 'ubi9' && format('{0}-ubi9', github.ref_name) || github.ref_name }}
           containerfiles: |
-            ./Containerfile
+            ${{ matrix.variant == 'ubi9' && './Containerfile.ubi9' || './Containerfile' }}
           platforms: linux/amd64, linux/arm64
 
       - name: Push to GHCR
-        if: github.event_name != 'pull_request'
+        if: github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v')
         uses: redhat-actions/push-to-registry@v2
         with:
           image: ${{ steps.build-image.outputs.image }}
@@ -59,12 +64,10 @@ jobs:
           registry: ${{ env.REGISTRY }}
 
       - name: Run Trivy scan
-        if: github.event_name != 'pull_request'
+        if: (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v')) && matrix.variant == 'ubuntu'
         uses: aquasecurity/trivy-action@master
         with:
           image-ref: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest
           format: sarif
           output: trivy-results.sarif
           severity: CRITICAL,HIGH
-
-

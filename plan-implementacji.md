@@ -45,7 +45,8 @@
 
 | ID | Wymaganie | Priorytet |
 |---|---|---|
-| NF-01 | Silnik: Podman w trybie rootless na Ubuntu 24.04 | Krytyczny |
+| NF-01 | Silnik: Podman w trybie rootless | Krytyczny |
+| NF-01b | Obraz dostępny w dwóch wariantach: Ubuntu 24.04 i Red Hat UBI 9 | Wysoki |
 | NF-02 | Mapowanie UID/GID bez `--userns=keep-id` | Krytyczny |
 | NF-03 | Wszystkie capability zrzucone (`--cap-drop=ALL`) | Krytyczny |
 | NF-04 | `no-new-privileges` włączone | Krytyczny |
@@ -181,7 +182,7 @@ make help  # → wyświetla dostępne targety
 
 #### Scenariusz
 
-Użytkownik buduje obraz kontenera zawierający wszystkie wymagane narzędzia: opencode CLI, git, Python 3, nmap, ping, iproute2, nano. Obraz musi być gotowy na Ubuntu 24.04 (LTS) z uruchomieniem opencode w trybie TUI lub headless.
+Użytkownik buduje obraz kontenera zawierający wszystkie wymagane narzędzia: opencode CLI, git, Python 3, nmap, ping, iproute2, nano. Obraz dostępny w dwóch wariantach: Ubuntu 24.04 (LTS) oraz Red Hat UBI 9, z uruchomieniem opencode w trybie TUI lub headless.
 
 #### Cel
 
@@ -236,6 +237,20 @@ podman images opencode:scope1 --format '{{.Size}}'
 3. **ARG TARGETARCH** — oficjalny skrypt instalacyjny opencode sam wykrywa architekturę. Parametr nie jest potrzebny w Containerfile.
 4. **Instalacja opencode jako root** — celowa: binary ląduje w `/usr/local/bin` (dostępny dla wszystkich użytkowników). Instalacja jako `opencode` user wymagałaby kopiowania do katalogu w `$PATH` użytkownika.
 5. **`netcat-openbsd`** — nie jest wymagany, ale pozostawiamy jako narzędzie przydatne do debugowania sieci.
+
+6. **Wariant UBI9** — obraz budowany jest również na Red Hat UBI 9. Różnice względem Ubuntu:
+
+| Pakiet (Ubuntu) | Pakiet (UBI9) | Uwagi |
+|---|---|---|
+| `apt-get` | `microdnf` | Menedżer pakietów — inne komendy |
+| `iputils-ping` | `iputils` | Różna nazwa pakietu |
+| `iproute2` | `iproute` | Różna nazwa pakietu |
+| `dnsutils` | `bind-utils` | Różna nazwa pakietu |
+| `netcat-openbsd` | `nmap-ncat` | Różna nazwa pakietu |
+| `userdel ubuntu` | (brak) | UBI nie ma domyślnego usera |
+| `rm -rf /var/lib/apt/lists/*` | `microdnf clean all` | Inny mechanizm czyszczenia cache |
+
+`Containerfile.ubi9` to osobny plik (nie ARG-i w Containerfile), co utrzymuje czystość i czytelność obu wariantów.
 
 ---
 
@@ -386,8 +401,9 @@ Automatyczna budowa i publikacja obrazów do GitHub Container Registry (ghcr.io)
 
 - GitHub Actions workflow budujący obrazy na push do `main` i na tagi semver (v*)
 - Publikacja na `ghcr.io/webbag/opencode`
-- Build wieloarchitekturowy (linux/amd64, linux/arm64) z QEMU + buildx (podman buildx)
-- Obrazy z podwójnym tagiem: `ghcr.io/webbag/opencode:latest`, `ghcr.io/webbag/opencode:1.2.3`
+- Build wieloarchitekturowy (linux/amd64, linux/arm64) z QEMU + buildah
+- Budowa dwóch wariantów przez matrix: ubuntu (Containerfile) i ubi9 (Containerfile.ubi9)
+- Obrazy z tagami: `latest`/`v*` (Ubuntu) oraz `ubi9`/`v*-ubi9` (UBI9)
 - Automatyczny README w ghcr.io z instrukcją użycia
 - Scan bezpieczeństwa (Trivy) po zbudowaniu
 
@@ -401,7 +417,7 @@ Automatyczna budowa i publikacja obrazów do GitHub Container Registry (ghcr.io)
 #### Procedura weryfikacji
 
 ```bash
-# 1. Ręczna bubowa (symulacja CI)
+# 1. Ręczna budowa Ububtu (symulacja CI)
 podman build \
   --platform linux/amd64,linux/arm64 \
   -t ghcr.io/webbag/opencode:test \
@@ -414,7 +430,14 @@ podman push ghcr.io/webbag/opencode:test
 podman pull ghcr.io/webbag/opencode:test
 podman run --rm -it ghcr.io/webbag/opencode:test opencode --version
 
-# 4. Skany bezpieczeństwa
+# 4. Budowa UBI9
+podman build \
+  --platform linux/amd64,linux/arm64 \
+  -t ghcr.io/webbag/opencode:test-ubi9 \
+  -f Containerfile.ubi9 .
+podman run --rm -it ghcr.io/webbag/opencode:test-ubi9 opencode --version
+
+# 5. Skany bezpieczeństwa
 trivy image ghcr.io/webbag/opencode:test
 ```
 
@@ -429,7 +452,8 @@ trivy image ghcr.io/webbag/opencode:test
 1. **buildah-build action** — zamiast `podman build` w CI używamy `redhat-actions/buildah-build`, które lepiej wspiera buildx i multi-arch.
 2. **QEMU dla arm64** — `qemu-user-static` musi być zainstalowane na runnerze. W Ubuntu 24.04 działa z `apt-get install qemu-user-static`.
 3. **Trivy scan** — tylko CRITICAL i HIGH severity. Lower severity (MEDIUM, LOW) są zwykle fałszywie pozytywne dla obrazów opartych na Ubuntu.
-4. **Tagowanie** — `latest` i `v*` (semver). Pull requesty też budują obraz (dla weryfikacji), ale nie pushują do rejestru.
+4. **Tagowanie** — dwa warianty w matrix: ubuntu (`latest`, `v*`) i ubi9 (`ubi9`, `v*-ubi9`). Pull requesty też budują obraz (dla weryfikacji), ale nie pushują do rejestru.
+5. **Matrix wariantów** — workflow buduje równolegle oba warianty przez `strategy.matrix`. Push do rejestru tylko z gałęzi `main` i tagów `v*` (warunek: `github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v')`). Feature branche budują ale nie pushują, co pozwala na CI weryfikację przed PR.
 
 ---
 
@@ -708,15 +732,90 @@ podman run --rm -it \
 
 ---
 
+## A.2 Containerfile.ubi9
+
+```dockerfile
+# Containerfile.ubi9 — OpenCode CLI w rootless Podman (Red Hat UBI 9)
+# Bazuje na Red Hat Universal Base Image 9 (microdnf zamiast apt).
+# Budowa: podman build -t opencode:ubi9 -f Containerfile.ubi9 .
+
+FROM registry.access.redhat.com/ubi9/ubi:latest AS opencode-builder
+
+ARG OPENCODE_VERSION=latest
+
+RUN microdnf install -y curl ca-certificates && microdnf clean all
+
+RUN curl -fsSL https://opencode.ai/install | bash && \
+    cp /root/.opencode/bin/opencode /opencode && \
+    /opencode --version
+
+FROM registry.access.redhat.com/ubi9/ubi:latest
+
+LABEL org.opencontainers.image.title="OpenCode CLI Container (UBI9)"
+LABEL org.opencontainers.image.description="Rootless Podman container for OpenCode AI coding agent, UBI9 variant"
+LABEL org.opencontainers.image.source="https://github.com/webbag/opencode"
+LABEL org.opencontainers.image.licenses="Apache-2.0"
+LABEL org.opencontainers.image.version="1.0.0"
+
+RUN microdnf upgrade -y && \
+    microdnf install -y \
+        git \
+        python3 \
+        python3-pip \
+        python3-venv \
+        nano \
+        curl \
+        ca-certificates \
+        nmap \
+        iputils \
+        iproute \
+        bind-utils \
+        nmap-ncat \
+        wget \
+        bash \
+    && microdnf clean all
+
+COPY --from=opencode-builder /opencode /usr/local/bin/opencode
+
+RUN opencode --version
+
+RUN groupadd -g 1000 opencode && \
+    useradd -m -u 1000 -g 1000 -s /bin/bash opencode && \
+    mkdir -p /home/opencode/workdir \
+             /home/opencode/.config/opencode \
+             /home/opencode/.local && \
+    chown -R opencode:opencode /home/opencode
+
+ENV HOME=/home/opencode
+ENV OPENCODE_HOME=/home/opencode/.config/opencode
+ENV PATH="/home/opencode/.local/bin:${PATH}"
+
+WORKDIR /home/opencode/workdir
+USER opencode
+HEALTHCHECK --interval=30s --timeout=10s --start-period=15s --retries=3 \
+    CMD opencode --version > /dev/null 2>&1 || exit 1
+
+ENV OPENCODE_DEFAULT_MODEL=opencode/big-pickle
+ENV OPENCODE_MODEL=opencode/big-pickle
+
+ENTRYPOINT ["opencode"]
+CMD ["-m", "opencode/big-pickle"]
+```
+
+---
+
 ## B. GitHub Actions (CI/CD)
 
 ```yaml
 # .github/workflows/build-and-publish.yml
+# Budowa i publikacja obrazu OpenCode CLI na ghcr.io
+# Buduje dwa warianty: Ubuntu 24.04 i Red Hat UBI 9
+
 name: Build and publish OpenCode image
 
 on:
   push:
-    branches: [main]
+    branches: ["**"]
     tags: ["v*"]
   pull_request:
     branches: [main]
@@ -727,6 +826,10 @@ env:
 
 jobs:
   build-and-push:
+    strategy:
+      matrix:
+        variant: [ubuntu, ubi9]
+      fail-fast: false
     runs-on: ubuntu-24.04
     permissions:
       contents: read
@@ -754,13 +857,14 @@ jobs:
         with:
           image: ${{ env.IMAGE_NAME }}
           tags: |
-            latest
-            ${{ github.ref_name }}
+            ${{ matrix.variant == 'ubi9' && 'ubi9' || 'latest' }}
+            ${{ matrix.variant == 'ubi9' && format('{0}-ubi9', github.ref_name) || github.ref_name }}
           containerfiles: |
-            ./Containerfile
+            ${{ matrix.variant == 'ubi9' && './Containerfile.ubi9' || './Containerfile' }}
           platforms: linux/amd64, linux/arm64
 
       - name: Push to GHCR
+        if: github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v')
         uses: redhat-actions/push-to-registry@v2
         with:
           image: ${{ steps.build-image.outputs.image }}
@@ -768,17 +872,13 @@ jobs:
           registry: ${{ env.REGISTRY }}
 
       - name: Run Trivy scan
+        if: (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v')) && matrix.variant == 'ubuntu'
         uses: aquasecurity/trivy-action@master
         with:
           image-ref: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest
           format: sarif
           output: trivy-results.sarif
           severity: CRITICAL,HIGH
-
-      - name: Upload Trivy results
-        uses: github/codeql-action/upload-sarif@v3
-        with:
-          sarif_file: trivy-results.sarif
 ```
 
 ---
@@ -794,6 +894,7 @@ jobs:
 
 IMAGE_NAME ?= opencode
 IMAGE_TAG ?= latest
+CONTAINERFILE ?= Containerfile
 PLATFORM ?= linux/amd64
 
 # Detekcja architektury hosta
@@ -814,7 +915,7 @@ build:
 		--platform $(PLATFORM) \
 		--build-arg OPENCODE_VERSION=latest \
 		-t $(IMAGE_NAME):$(IMAGE_TAG) \
-		-f Containerfile .
+		-f $(CONTAINERFILE) .
 
 .PHONY: build-no-cache
 build-no-cache:
@@ -822,7 +923,15 @@ build-no-cache:
 		--platform $(PLATFORM) \
 		--build-arg OPENCODE_VERSION=latest \
 		-t $(IMAGE_NAME):$(IMAGE_TAG) \
-		-f Containerfile .
+		-f $(CONTAINERFILE) .
+
+.PHONY: build-ubi9
+build-ubi9:
+	$(MAKE) build CONTAINERFILE=Containerfile.ubi9 IMAGE_TAG=ubi9
+
+.PHONY: build-ubi9-no-cache
+build-ubi9-no-cache:
+	$(MAKE) build-no-cache CONTAINERFILE=Containerfile.ubi9 IMAGE_TAG=ubi9
 
 # ============================================================
 # Uruchomienie
@@ -875,6 +984,10 @@ shell-root:
 test: build
 	./tests/test_integration.sh $(IMAGE_NAME):$(IMAGE_TAG)
 
+.PHONY: test-ubi9
+test-ubi9: build-ubi9
+	./tests/test_integration.sh $(IMAGE_NAME):ubi9
+
 .PHONY: test-quick
 test-quick:
 	podman run --rm $(IMAGE_NAME):$(IMAGE_TAG) opencode --version
@@ -896,16 +1009,19 @@ history:
 .PHONY: help
 help:
 	@echo "Targety Makefile:"
-	@echo "  build           — zbuduj obraz (domyślnie: $(IMAGE_NAME):$(IMAGE_TAG))"
-	@echo "  build-no-cache  — zbuduj bez cache"
-	@echo "  run             — uruchom TUI"
-	@echo "  run-headless    — uruchom headless (make run-headless CMD='twoja komenda')"
-	@echo "  shell           — wejdź do shella jako opencode"
-	@echo "  shell-root      — wejdź do shella jako root"
-	@echo "  test            — testy integracyjne"
-	@echo "  test-quick      — szybki test (wersja, git, whoami)"
-	@echo "  size            — sprawdź rozmiar obrazu"
-	@echo "  history         — historia warstw obrazu"
+	@echo "  build                   — zbuduj obraz (domyślnie: $(IMAGE_NAME):$(IMAGE_TAG))"
+	@echo "  build-no-cache          — zbuduj bez cache"
+	@echo "  build-ubi9             — zbuduj obraz na UBI 9 (tag: ubi9)"
+	@echo "  build-ubi9-no-cache    — zbuduj UBI 9 bez cache"
+	@echo "  run                    — uruchom TUI"
+	@echo "  run-headless           — uruchom headless (make run-headless CMD='twoja komenda')"
+	@echo "  shell                  — wejdź do shella jako opencode"
+	@echo "  shell-root             — wejdź do shella jako root"
+	@echo "  test                   — testy integracyjne"
+	@echo "  test-ubi9             — testy integracyjne na UBI 9"
+	@echo "  test-quick             — szybki test (wersja, git, whoami)"
+	@echo "  size                   — sprawdź rozmiar obrazu"
+	@echo "  history                — historia warstw obrazu"
 ```
 
 ---
@@ -967,17 +1083,22 @@ opencode-image/
 ├── .gitignore
 ├── .dockerignore
 ├── Containerfile
+├── Containerfile.ubi9
 ├── LICENSE
 ├── Makefile
 ├── README.md
+├── AGENTS.md
 ├── cel.md
 ├── docker-compose.yml
 ├── plan-implementacji.md
 ├── .github/
 │   └── workflows/
-│       └── build-and-publish.yml
+│       ├── build-and-publish.yml
+│       ├── scheduled-rebuild.yml
+│       └── dependabot.yml
 └── tests/
-    └── test_integration.sh
+    ├── test_integration.sh
+    └── test_security.sh
 ```
 
 ---
