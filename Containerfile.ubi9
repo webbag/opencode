@@ -1,9 +1,11 @@
 # Containerfile.ubi9 — OpenCode CLI w rootless Podman (Red Hat UBI 9)
 #
-# Bazuje na Red Hat Universal Base Image 9 (microdnf zamiast apt).
+# Bazuje na Red Hat Universal Base Image 9 (dnf zamiast apt).
 # Różnice względem Containerfile (Ubuntu):
-#   - microdnf zamiast apt-get
-#   - microdnf clean all zamiast rm -rf /var/lib/apt/lists/*
+#   - dnf zamiast apt-get
+#   - curl-minimal zastąpiony curl przez --allowerasing
+#   - brak python3-venv (niedostępny na UBI9; python3 zawiera venv)
+#   - dnf clean all zamiast rm -rf /var/lib/apt/lists/*
 #   - iputils zamiast iputils-ping
 #   - iproute zamiast iproute2
 #   - bind-utils zamiast dnsutils
@@ -24,8 +26,9 @@ FROM registry.access.redhat.com/ubi9/ubi:latest AS opencode-builder
 
 ARG OPENCODE_VERSION=latest
 
-RUN microdnf install -y curl ca-certificates && \
-    microdnf clean all
+# curl-minimal i ca-certificates są pre-instalowane w UBI 9
+RUN dnf install -y --allowerasing curl ca-certificates && \
+    dnf clean all
 
 RUN curl -fsSL https://opencode.ai/install | bash && \
     cp /root/.opencode/bin/opencode /opencode && \
@@ -43,12 +46,11 @@ LABEL org.opencontainers.image.source="https://github.com/webbag/opencode"
 LABEL org.opencontainers.image.licenses="Apache 2.0"
 LABEL org.opencontainers.image.version="1.0.0"
 
-RUN microdnf upgrade -y && \
-    microdnf install -y \
+RUN dnf upgrade -y && \
+    dnf install -y --allowerasing \
         git \
         python3 \
         python3-pip \
-        python3-venv \
         nano \
         curl \
         ca-certificates \
@@ -59,7 +61,7 @@ RUN microdnf upgrade -y && \
         nmap-ncat \
         wget \
         bash \
-    && microdnf clean all
+    && dnf clean all
 
 COPY --from=opencode-builder /opencode /usr/local/bin/opencode
 

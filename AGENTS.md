@@ -7,7 +7,7 @@ Obraz kontenera OpenCode CLI dla rootless Podman. **To nie jest projekt z kodem 
 | Plik | Rola |
 |---|---|
 | `Containerfile` | Multi-stage build: Ubuntu 24.04 (apt) |
-| `Containerfile.ubi9` | Multi-stage build: Red Hat UBI 9 (microdnf) |
+| `Containerfile.ubi9` | Multi-stage build: Red Hat UBI 9 (dnf) |
 | `Makefile` | Nakładka na `podman` — używaj jej zamiast raw commands |
 | `docker-compose.yml` | Dla `podman-compose up` |
 | `tests/test_integration.sh` | 13 testów (wersja, git, python, capabilities, sieć, nmap) |
@@ -36,7 +36,7 @@ make size                     # rozmiar obrazu
   - `latest` / `v*` — Ubuntu 24.04
   - `ubi9` / `v*-ubi9` — Red Hat UBI 9
 - **Entrypoint**: `opencode`, default `CMD ["-m", "opencode/big-pickle"]`
-- **Różnice Ubuntu vs UBI9**: `apt-get` → `microdnf`, `iputils-ping` → `iputils`, `iproute2` → `iproute`, `dnsutils` → `bind-utils`, `netcat-openbsd` → `nmap-ncat`
+- **Różnice Ubuntu vs UBI9**: `apt-get` → `dnf`, `iputils-ping` → `iputils`, `iproute2` → `iproute`, `dnsutils` → `bind-utils`, `netcat-openbsd` → `nmap-ncat`, `curl-minimal` → `curl` (przez `--allowerasing`), brak `python3-venv`
 - **Użytkownik**: `opencode` (UID/GID 1000) — bez sudo, bez setcap
 - **Kolejność warstw w Containerfile** (ważna): apt → opencode CLI → user opencode → ENV → USER → HEALTHCHECK → ENTRYPOINT
 - **Klucze API**: przekazywane przez `-e` w runtime, NIGDY nie buildowane w obraz

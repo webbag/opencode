@@ -1,6 +1,6 @@
 # .github/workflows/scheduled-rebuild.yml
 # Cotygodniowy rebuild obrazów — łapie najnowsze łatki bezpieczeństwa
-# (Ubuntu apt / UBI9 microdnf) oraz nowe wersje opencode CLI.
+# (Ubuntu apt / UBI9 dnf) oraz nowe wersje opencode CLI.
 # Buduje dwa warianty: Ubuntu 24.04 i Red Hat UBI 9.
 
 name: Weekly scheduled rebuild

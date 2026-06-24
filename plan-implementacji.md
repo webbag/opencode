@@ -242,13 +242,13 @@ podman images opencode:scope1 --format '{{.Size}}'
 
 | Pakiet (Ubuntu) | Pakiet (UBI9) | Uwagi |
 |---|---|---|
-| `apt-get` | `microdnf` | Menedżer pakietów — inne komendy |
+| `apt-get` | `dnf` | Menedżer pakietów — inne komendy |
 | `iputils-ping` | `iputils` | Różna nazwa pakietu |
 | `iproute2` | `iproute` | Różna nazwa pakietu |
 | `dnsutils` | `bind-utils` | Różna nazwa pakietu |
 | `netcat-openbsd` | `nmap-ncat` | Różna nazwa pakietu |
 | `userdel ubuntu` | (brak) | UBI nie ma domyślnego usera |
-| `rm -rf /var/lib/apt/lists/*` | `microdnf clean all` | Inny mechanizm czyszczenia cache |
+| `rm -rf /var/lib/apt/lists/*` | `dnf clean all` | Inny mechanizm czyszczenia cache |
 
 `Containerfile.ubi9` to osobny plik (nie ARG-i w Containerfile), co utrzymuje czystość i czytelność obu wariantów.
 
@@ -736,14 +736,15 @@ podman run --rm -it \
 
 ```dockerfile
 # Containerfile.ubi9 — OpenCode CLI w rootless Podman (Red Hat UBI 9)
-# Bazuje na Red Hat Universal Base Image 9 (microdnf zamiast apt).
+# Bazuje na Red Hat Universal Base Image 9 (dnf zamiast apt).
 # Budowa: podman build -t opencode:ubi9 -f Containerfile.ubi9 .
 
 FROM registry.access.redhat.com/ubi9/ubi:latest AS opencode-builder
 
 ARG OPENCODE_VERSION=latest
 
-RUN microdnf install -y curl ca-certificates && microdnf clean all
+RUN dnf install -y --allowerasing curl ca-certificates && \
+    dnf clean all
 
 RUN curl -fsSL https://opencode.ai/install | bash && \
     cp /root/.opencode/bin/opencode /opencode && \
@@ -757,12 +758,11 @@ LABEL org.opencontainers.image.source="https://github.com/webbag/opencode"
 LABEL org.opencontainers.image.licenses="Apache-2.0"
 LABEL org.opencontainers.image.version="1.0.0"
 
-RUN microdnf upgrade -y && \
-    microdnf install -y \
+RUN dnf upgrade -y && \
+    dnf install -y --allowerasing \
         git \
         python3 \
         python3-pip \
-        python3-venv \
         nano \
         curl \
         ca-certificates \
@@ -773,7 +773,7 @@ RUN microdnf upgrade -y && \
         nmap-ncat \
         wget \
         bash \
-    && microdnf clean all
+    && dnf clean all
 
 COPY --from=opencode-builder /opencode /usr/local/bin/opencode
 
